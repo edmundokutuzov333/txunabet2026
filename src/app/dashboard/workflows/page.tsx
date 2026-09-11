@@ -1,5 +1,5 @@
-import { ProductionModuleView } from '@/components/modules/production-module-view';
+import { AutomationOperationsView } from '@/components/automation/automation-operations-view';
 
 export default function WorkflowsPage() {
-  return <ProductionModuleView module="workflows" />;
+  return <AutomationOperationsView mode="workflows" />;
 }
