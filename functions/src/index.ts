@@ -8,7 +8,7 @@ import * as logger from 'firebase-functions/logger';
 import { z } from 'zod';
 import Stripe from 'stripe';
 
-if (!admin.apps.length) admin.initializeApp();
+if (!admin.apps?.length) admin.initializeApp();
 export { automationWorker, triggerAutomationEvent, runAutomationNow } from './automation-engine';
 const db = admin.firestore();
 const REGION = 'africa-south1';
