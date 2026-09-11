@@ -2,6 +2,7 @@ import { auth as v1Auth } from 'firebase-functions/v1';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { beforeUserCreated } from 'firebase-functions/v2/identity';
 import { defineSecret } from 'firebase-functions/params';
+import type { UserRecord } from 'firebase-admin/auth';
 import * as admin from 'firebase-admin';
 import * as logger from 'firebase-functions/logger';
 import { z } from 'zod';
@@ -44,14 +45,11 @@ export const beforecreate = beforeUserCreated((event) => {
   }
 });
 
-export const oncreate = v1Auth.user().onCreate(
-  { region: REGION },
-  async (user) => {
-    const now = admin.firestore.FieldValue.serverTimestamp();
-    await db.collection('users').doc(user.uid).set({ uid: user.uid, email: user.email ?? null, displayName: user.displayName || 'Novo Utilizador', status: 'pending', mfaRequired: false, createdAt: now, updatedAt: now }, { merge: true });
-    logger.info('Created pending enterprise user profile', { uid: user.uid });
-  }
-);
+export const oncreate = v1Auth.user().onCreate(async (user: UserRecord) => {
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  await db.collection('users').doc(user.uid).set({ uid: user.uid, email: user.email ?? null, displayName: user.displayName || 'Novo Utilizador', status: 'pending', mfaRequired: false, createdAt: now, updatedAt: now }, { merge: true });
+  logger.info('Created pending enterprise user profile', { uid: user.uid });
+});
 
 export class StockService {
   private static instance: StockService;
