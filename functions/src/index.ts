@@ -7,9 +7,9 @@ import * as admin from 'firebase-admin';
 import * as logger from 'firebase-functions/logger';
 import { z } from 'zod';
 import Stripe from 'stripe';
-export { automationWorker, triggerAutomationEvent, runAutomationNow } from './automation-engine';
 
 admin.initializeApp();
+export { automationWorker, triggerAutomationEvent, runAutomationNow } from './automation-engine';
 const db = admin.firestore();
 const REGION = 'africa-south1';
 const stripeApiKey = defineSecret('STRIPE_API_KEY');
@@ -22,10 +22,8 @@ async function requireCompanyIdentity(request: { auth?: { uid: string; token: Re
   if (!request.auth) throw new HttpsError('unauthenticated', 'A autenticação é necessária.');
   const companyId = typeof request.auth.token.companyId === 'string' ? request.auth.token.companyId : '';
   if (!companyId) throw new HttpsError('permission-denied', 'A conta não possui uma empresa ativa.');
-
   const member = await db.collection('companies').doc(companyId).collection('members').doc(request.auth.uid).get();
   if (!member.exists || member.data()?.status !== 'active') throw new HttpsError('permission-denied', 'A membership empresarial não está ativa.');
-
   const role = member.data()?.role as EnterpriseRole;
   if (!['owner', 'admin', 'manager', 'member', 'viewer'].includes(role)) throw new HttpsError('permission-denied', 'Role empresarial inválido.');
   return { uid: request.auth.uid, companyId, role };
@@ -83,49 +81,21 @@ export class OrderService {
   private stripe: Stripe;
   private stockService: StockService;
   private taxService: TaxService;
-
   private constructor(stripeKey: string) {
     this.stripe = new Stripe(stripeKey, { apiVersion: '2024-04-10', typescript: true });
     this.stockService = StockService.getInstance();
     this.taxService = TaxService.getInstance();
   }
-
   public static getInstance(stripeKey: string): OrderService {
     if (!OrderService.instance) OrderService.instance = new OrderService(stripeKey);
     return OrderService.instance;
   }
-
   async processNewOrder(orderData: { itemId: string; quantity: number; amount: number; currency: 'usd' | 'brl' | 'eur'; paymentMethodId: string; customerId: string; companyId: string }) {
-    const [hasStock, taxAmount] = await Promise.all([
-      this.stockService.verifyStock(orderData.itemId, orderData.quantity),
-      this.taxService.calculateTax(orderData.amount),
-    ]);
+    const [hasStock, taxAmount] = await Promise.all([this.stockService.verifyStock(orderData.itemId, orderData.quantity), this.taxService.calculateTax(orderData.amount)]);
     if (!hasStock) throw new HttpsError('failed-precondition', `Item ${orderData.itemId} is out of stock.`);
-
     const totalAmount = orderData.amount + taxAmount;
-    const paymentIntent = await this.stripe.paymentIntents.create({
-      amount: totalAmount,
-      currency: orderData.currency,
-      payment_method: orderData.paymentMethodId,
-      confirm: true,
-      automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
-      metadata: { firebaseUid: orderData.customerId, companyId: orderData.companyId, itemId: orderData.itemId, quantity: String(orderData.quantity), tax_amount: String(taxAmount) },
-    });
-
-    await db.collection('transactions').doc(paymentIntent.id).set({
-      id: paymentIntent.id,
-      companyId: orderData.companyId,
-      userId: orderData.customerId,
-      externalId: paymentIntent.id,
-      source: 'stripe',
-      amount: totalAmount,
-      currency: orderData.currency,
-      status: paymentIntent.status === 'succeeded' ? 'succeeded' : 'pending',
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      metadata: { itemId: orderData.itemId, quantity: String(orderData.quantity), taxAmount: String(taxAmount) },
-    });
-
+    const paymentIntent = await this.stripe.paymentIntents.create({ amount: totalAmount, currency: orderData.currency, payment_method: orderData.paymentMethodId, confirm: true, automatic_payment_methods: { enabled: true, allow_redirects: 'never' }, metadata: { firebaseUid: orderData.customerId, companyId: orderData.companyId, itemId: orderData.itemId, quantity: String(orderData.quantity), tax_amount: String(taxAmount) } });
+    await db.collection('transactions').doc(paymentIntent.id).set({ id: paymentIntent.id, companyId: orderData.companyId, userId: orderData.customerId, externalId: paymentIntent.id, source: 'stripe', amount: totalAmount, currency: orderData.currency, status: paymentIntent.status === 'succeeded' ? 'succeeded' : 'pending', createdAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp(), metadata: { itemId: orderData.itemId, quantity: String(orderData.quantity), taxAmount: String(taxAmount) } });
     return { clientSecret: paymentIntent.client_secret, status: paymentIntent.status, totalAmount };
   }
 }
@@ -168,19 +138,15 @@ export const setAdminRole = onCall({ region: REGION }, async (request) => {
   const caller = await requireCompanyIdentity(request);
   requireMfa(request);
   if (!['owner', 'admin'].includes(caller.role)) throw new HttpsError('permission-denied', 'Only enterprise administrators can change roles.');
-
   const schema = z.object({ uid: z.string().min(1).max(128), companyId: z.string().min(1).max(128), role: z.enum(['owner', 'admin', 'manager', 'member', 'viewer']) });
   const parsed = schema.safeParse(request.data);
   if (!parsed.success) throw new HttpsError('invalid-argument', 'Dados de membership inválidos.');
   if (parsed.data.companyId !== caller.companyId) throw new HttpsError('permission-denied', 'Cannot manage another company.');
-
   const memberRef = db.collection('companies').doc(caller.companyId).collection('members').doc(parsed.data.uid);
   await memberRef.set({ userId: parsed.data.uid, companyId: caller.companyId, role: parsed.data.role, permissions: [], departmentIds: [], status: 'active', updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-
   const target = await admin.auth().getUser(parsed.data.uid);
   await admin.auth().setCustomUserClaims(parsed.data.uid, { ...(target.customClaims ?? {}), role: parsed.data.role, companyId: caller.companyId });
   await admin.auth().revokeRefreshTokens(parsed.data.uid);
-
   await db.collection('companies').doc(caller.companyId).collection('auditLogs').add({ companyId: caller.companyId, actorId: caller.uid, action: 'membership.role_changed', resourceType: 'membership', resourceId: parsed.data.uid, metadata: { role: parsed.data.role }, createdAt: admin.firestore.FieldValue.serverTimestamp() });
   return { ok: true };
 });
