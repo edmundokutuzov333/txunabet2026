@@ -13,7 +13,7 @@ jest.mock('firebase-admin', () => {
     FieldValue: { serverTimestamp: jest.fn(() => 'server-timestamp') },
   });
   const auth = jest.fn(() => ({ getUser: jest.fn(), setCustomUserClaims: jest.fn(), revokeRefreshTokens: jest.fn() }));
-  return { initializeApp: jest.fn(), firestore, auth };
+  return { apps: [], initializeApp: jest.fn(), firestore, auth };
 });
 
 jest.mock('stripe', () => ({
