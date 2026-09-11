@@ -34,10 +34,7 @@ export const AutomationControlSchema = z.object({
   ]),
 });
 
-function jsonSize(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value), 'utf8');
-}
-
+function jsonSize(value: unknown): number { return Buffer.byteLength(JSON.stringify(value), 'utf8'); }
 function serialize(value: unknown): unknown {
   if (value instanceof Timestamp) return value.toDate().toISOString();
   if (value instanceof Date) return value.toISOString();
@@ -46,9 +43,13 @@ function serialize(value: unknown): unknown {
   return value;
 }
 
-async function assertWorkflowInCompany(workflowId: string, companyId: string): Promise<void> {
-  const workflow = await getAdminDb().collection('module_workflows').doc(workflowId).get();
-  if (!workflow.exists || workflow.data()?.companyId !== companyId) throw new Error('WORKFLOW_NOT_FOUND');
+async function getWorkflowSnapshot(workflowId: string, companyId: string): Promise<{ id: string; version: number; data: z.infer<typeof WorkflowControlSchema> }> {
+  const ref = getAdminDb().collection('module_workflows').doc(workflowId);
+  const snapshot = await ref.get();
+  if (!snapshot.exists || snapshot.data()?.companyId !== companyId) throw new Error('WORKFLOW_NOT_FOUND');
+  const data = WorkflowControlSchema.safeParse(snapshot.data());
+  if (!data.success) throw new Error('INVALID_WORKFLOW');
+  return { id: snapshot.id, version: Number(snapshot.data()?.version ?? 1), data: data.data };
 }
 
 export async function listWorkflowControls(limit = 100) {
@@ -76,9 +77,13 @@ export async function createWorkflow(input: unknown) {
   const parsed = WorkflowControlSchema.safeParse(input);
   if (!parsed.success || jsonSize(parsed.data) > 100_000) throw new Error('INVALID_WORKFLOW');
   const ref = getAdminDb().collection('module_workflows').doc();
-  await ref.create({ ...parsed.data, companyId: identity.companyId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), version: 1 });
-  await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'create', resourceType: 'workflow', resourceId: ref.id, metadata: { name: parsed.data.name } });
-  return { id: ref.id, ...parsed.data };
+  const versionRef = ref.collection('versions').doc('1');
+  await getAdminDb().runTransaction(async (transaction) => {
+    transaction.create(ref, { ...parsed.data, companyId: identity.companyId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), version: 1 });
+    transaction.create(versionRef, { ...parsed.data, workflowId: ref.id, version: 1, createdBy: identity.uid, createdAt: FieldValue.serverTimestamp() });
+  });
+  await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'create', resourceType: 'workflow', resourceId: ref.id, metadata: { name: parsed.data.name, version: 1 } });
+  return { id: ref.id, version: 1, ...parsed.data };
 }
 
 export async function updateWorkflow(id: string, input: unknown) {
@@ -89,20 +94,25 @@ export async function updateWorkflow(id: string, input: unknown) {
   const ref = getAdminDb().collection('module_workflows').doc(id);
   const existing = await ref.get();
   if (!existing.exists || existing.data()?.companyId !== identity.companyId) throw new Error('NOT_FOUND');
-  await ref.update({ ...parsed.data, updatedBy: identity.uid, updatedAt: FieldValue.serverTimestamp(), version: FieldValue.increment(1) });
-  await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'update', resourceType: 'workflow', resourceId: id, metadata: { name: parsed.data.name } });
-  return { id, ...parsed.data };
+  const nextVersion = Number(existing.data()?.version ?? 1) + 1;
+  const versionRef = ref.collection('versions').doc(String(nextVersion));
+  await getAdminDb().runTransaction(async (transaction) => {
+    transaction.update(ref, { ...parsed.data, updatedBy: identity.uid, updatedAt: FieldValue.serverTimestamp(), version: nextVersion });
+    transaction.create(versionRef, { ...parsed.data, workflowId: id, version: nextVersion, createdBy: identity.uid, createdAt: FieldValue.serverTimestamp() });
+  });
+  await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'update', resourceType: 'workflow', resourceId: id, metadata: { name: parsed.data.name, version: nextVersion } });
+  return { id, version: nextVersion, ...parsed.data };
 }
 
 export async function createAutomation(input: unknown) {
   const identity = await requirePermission(PERMISSIONS.AUTOMATION_MANAGE);
   const parsed = AutomationControlSchema.safeParse(input);
   if (!parsed.success || jsonSize(parsed.data) > 50_000) throw new Error('INVALID_AUTOMATION');
-  await assertWorkflowInCompany(parsed.data.workflowId, identity.companyId);
+  const workflow = await getWorkflowSnapshot(parsed.data.workflowId, identity.companyId);
   const ref = getAdminDb().collection('module_automations').doc();
-  await ref.create({ ...parsed.data, companyId: identity.companyId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), version: 1, lastScheduledKey: null });
-  await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'create', resourceType: 'automation', resourceId: ref.id, metadata: { name: parsed.data.name, workflowId: parsed.data.workflowId } });
-  return { id: ref.id, ...parsed.data };
+  await ref.create({ ...parsed.data, companyId: identity.companyId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), version: 1, workflowVersion: workflow.version, lastScheduledKey: null });
+  await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'create', resourceType: 'automation', resourceId: ref.id, metadata: { name: parsed.data.name, workflowId: parsed.data.workflowId, workflowVersion: workflow.version } });
+  return { id: ref.id, workflowVersion: workflow.version, ...parsed.data };
 }
 
 export async function updateAutomation(id: string, input: unknown) {
@@ -110,13 +120,13 @@ export async function updateAutomation(id: string, input: unknown) {
   if (!/^[A-Za-z0-9_-]{1,180}$/.test(id)) throw new Error('INVALID_ID');
   const parsed = AutomationControlSchema.safeParse(input);
   if (!parsed.success || jsonSize(parsed.data) > 50_000) throw new Error('INVALID_AUTOMATION');
-  await assertWorkflowInCompany(parsed.data.workflowId, identity.companyId);
+  const workflow = await getWorkflowSnapshot(parsed.data.workflowId, identity.companyId);
   const ref = getAdminDb().collection('module_automations').doc(id);
   const existing = await ref.get();
   if (!existing.exists || existing.data()?.companyId !== identity.companyId) throw new Error('NOT_FOUND');
-  await ref.update({ ...parsed.data, updatedBy: identity.uid, updatedAt: FieldValue.serverTimestamp(), version: FieldValue.increment(1), lastScheduledKey: null });
-  await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'update', resourceType: 'automation', resourceId: id, metadata: { name: parsed.data.name, workflowId: parsed.data.workflowId } });
-  return { id, ...parsed.data };
+  await ref.update({ ...parsed.data, workflowVersion: workflow.version, updatedBy: identity.uid, updatedAt: FieldValue.serverTimestamp(), version: FieldValue.increment(1), lastScheduledKey: null });
+  await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'update', resourceType: 'automation', resourceId: id, metadata: { name: parsed.data.name, workflowId: parsed.data.workflowId, workflowVersion: workflow.version } });
+  return { id, workflowVersion: workflow.version, ...parsed.data };
 }
 
 export async function enqueueManualAutomation(id: string, payload: Record<string, unknown> = {}) {
@@ -125,12 +135,11 @@ export async function enqueueManualAutomation(id: string, payload: Record<string
   const automation = await automationRef.get();
   if (!automation.exists || automation.data()?.companyId !== identity.companyId || automation.data()?.active !== true) throw new Error('AUTOMATION_NOT_ACTIVE');
   const workflowId = String(automation.data()?.workflowId ?? '');
-  await assertWorkflowInCompany(workflowId, identity.companyId);
+  const workflow = await getWorkflowSnapshot(workflowId, identity.companyId);
   const key = `manual_${id}_${identity.uid}_${randomUUID().replace(/-/g, '')}`;
-  const jobRef = getAdminDb().collection('automation_jobs').doc(key);
-  await jobRef.create({ id: jobRef.id, companyId: identity.companyId, automationId: id, workflowId, trigger: 'manual', payload, idempotencyKey: key, status: 'pending', attempts: 0, maxAttempts: 5, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), nextAttemptAt: Timestamp.now() });
-  await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'execute', resourceType: 'automation', resourceId: id, metadata: { jobId: key } });
-  return { jobId: key };
+  await getAdminDb().collection('automation_jobs').doc(key).create({ id: key, companyId: identity.companyId, automationId: id, workflowId, workflowVersion: workflow.version, trigger: 'manual', payload, idempotencyKey: key, status: 'pending', attempts: 0, maxAttempts: 5, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), nextAttemptAt: Timestamp.now() });
+  await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'execute', resourceType: 'automation', resourceId: id, metadata: { jobId: key, workflowVersion: workflow.version } });
+  return { jobId: key, workflowVersion: workflow.version };
 }
 
 export async function retryAutomationJob(id: string) {
