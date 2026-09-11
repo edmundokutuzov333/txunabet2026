@@ -1,17 +1,16 @@
 import { NextResponse } from 'next/server';
-import { getAdminDb } from '@/server/firebase/admin';
-import { getConversationOrThrow } from '@/server/services/chat';
-import { summarizeChat } from '@/ai/flows/summarize-chat';
+import { requireIdentity } from '@/server/authorization';
+import { summarizeConversationSecure } from '@/server/services/ai';
 
-export async function POST(_request: Request, { params }: { params: Promise<{ conversationId: string }> }) {
+export async function POST(_: Request, { params }: { params: Promise<{ conversationId: string }> }) {
   try {
+    const identity = await requireIdentity();
     const { conversationId } = await params;
-    const { ref } = await getConversationOrThrow(conversationId);
-    const snapshot = await ref.collection('messages').orderBy('createdAt', 'desc').limit(50).get();
-    const messages = snapshot.docs.map((doc) => doc.data()).reverse();
-    const summary = await summarizeChat({ messages: messages.map((message) => ({ author: message.senderId, content: message.body })) });
-    return NextResponse.json(summary);
+    const result = await summarizeConversationSecure(identity.uid, identity.companyId, conversationId, 'summarize');
+    return NextResponse.json({ summary: result });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Não foi possível resumir a conversa.' }, { status: 400 });
+    const message = error instanceof Error ? error.message : 'AI_REQUEST_FAILED';
+    const status = message === 'UNAUTHENTICATED' ? 401 : message === 'FORBIDDEN' ? 403 : message === 'AI_RATE_LIMITED' ? 429 : 400;
+    return NextResponse.json({ error: message }, { status });
   }
 }
