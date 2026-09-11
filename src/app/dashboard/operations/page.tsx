@@ -1,4 +1,3 @@
-
 'use client'
 import { Card, CardContent } from "@/components/ui/card";
 import { gameOperations as initialGameOperations } from "@/lib/data";
@@ -13,13 +12,13 @@ const statusConfig: { [key: string]: { label: string; border: string; } } = {
     testing: { label: 'Testes', border: 'border-yellow-500' },
     live: { label: 'Live', border: 'border-green-500 animate-pulse' },
     monitoring: { label: 'Monitorização', border: 'border-slate-500' },
-}
+};
 
 const riskConfig: { [key: string]: { label: string; color: string; icon: React.ElementType } } = {
     low: { label: 'Baixo', color: 'text-green-400', icon: CheckCircle },
     medium: { label: 'Médio', color: 'text-yellow-400', icon: Clock },
     high: { label: 'Alto', color: 'text-destructive', icon: AlertTriangle },
-}
+};
 
 const GameOperationCard = ({ operation }: { operation: GameOperation }) => {
     const risk = riskConfig[operation.riskLevel] || { label: 'N/D', color: 'text-muted-foreground', icon: AlertTriangle };
@@ -33,15 +32,14 @@ const GameOperationCard = ({ operation }: { operation: GameOperation }) => {
                         <Gamepad2 className="w-5 h-5 text-primary/80"/>
                         {operation.name}
                     </h3>
-                     <Badge variant="secondary" className={`capitalize text-xs ${risk.color} bg-opacity-10 bg-current`}>
+                    <Badge variant="secondary" className={`capitalize text-xs ${risk.color} bg-opacity-10 bg-current`}>
                         <Icon className={`w-3.5 h-3.5 mr-1.5 ${risk.color}`} />
                         Risco: {risk.label}
                     </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground mb-4">Fornecedor: <span className="font-semibold text-foreground/90">{operation.provider}</span></p>
-                
                 <div className="flex items-center justify-between text-xs">
-                     <Badge variant="outline" className="capitalize">{operation.gameType.replace('_', ' ')}</Badge>
+                    <Badge variant="outline" className="capitalize">{operation.gameType.replace('_', ' ')}</Badge>
                 </div>
             </CardContent>
         </Card>
@@ -60,24 +58,20 @@ const OperationColumn = ({ title, operations, border }: { title: string, operati
             </div>
         </div>
     );
-}
+};
 
 export default function GameOperationsPage() {
-    
-    const operationsByStatus = Object.entries(statusConfig).map(([statusKey, config]) => {
-        return {
-            title: config.label,
-            border: config.border,
-            operations: initialGameOperations.filter(op => op.integrationStatus === statusKey)
-        }
-    });
+    const operationsByStatus = Object.entries(statusConfig).map(([statusKey, config]) => ({
+        title: config.label,
+        border: config.border,
+        operations: initialGameOperations.filter(op => op.stage === statusKey),
+    }));
 
     return (
         <div className="p-6 fade-in h-full flex flex-col">
             <div className="flex justify-between items-center mb-8 flex-shrink-0">
                 <h1 className="text-3xl font-bold text-foreground">Operações de Jogo</h1>
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 flex-grow overflow-hidden">
                 {operationsByStatus.map(group => (
                     <OperationColumn key={group.title} title={group.title} operations={group.operations} border={group.border} />
