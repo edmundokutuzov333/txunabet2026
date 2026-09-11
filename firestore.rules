@@ -2,39 +2,32 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function isAdmin() {
-      return signedIn() && (request.auth.token.admin == true || request.auth.token.role in ['owner', 'admin']);
-    }
-
+    function signedIn() { return request.auth != null; }
     function isCompanyMember(companyId) {
       return signedIn()
         && exists(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid))
         && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.status == 'active';
     }
-
     function isCompanyAdmin(companyId) {
       return isCompanyMember(companyId)
         && get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role in ['owner', 'admin'];
     }
-
     function isDepartmentMember(departmentId) {
       return signedIn()
         && exists(/databases/$(database)/documents/departments/$(departmentId)/members/$(request.auth.uid))
         && get(/databases/$(database)/documents/departments/$(departmentId)/members/$(request.auth.uid)).data.status == 'active';
     }
-
+    function conversationAccess(conversationId) {
+      let c = get(/databases/$(database)/documents/conversations/$(conversationId)).data;
+      return isCompanyMember(c.companyId)
+        && (c.type == 'company_general'
+          || (c.type == 'department' && isDepartmentMember(c.departmentId))
+          || (c.type in ['direct', 'group'] && request.auth.uid in c.memberIds));
+    }
     function hasPermission(companyId, permission) {
       return isCompanyMember(companyId)
-        && (
-          isCompanyAdmin(companyId)
-          || permission in get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.permissions
-        );
+        && (isCompanyAdmin(companyId) || permission in get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.permissions);
     }
-
     function immutableIdentityFieldsUnchanged() {
       return request.resource.data.uid == resource.data.uid
         && request.resource.data.email == resource.data.email
@@ -46,32 +39,24 @@ service cloud.firestore {
       allow list: if false;
       allow create, delete: if false;
       allow update: if isCompanyAdmin(companyId);
-
       match /members/{userId} {
         allow get: if isCompanyMember(companyId);
-        allow list: if isCompanyAdmin(companyId);
-        allow create, update, delete: if isCompanyAdmin(companyId);
+        allow list, create, update, delete: if isCompanyAdmin(companyId);
       }
-
       match /auditLogs/{auditId} {
         allow read, list: if hasPermission(companyId, 'audit.read');
-        allow create: if false;
-        allow update, delete: if false;
+        allow create, update, delete: if false;
       }
     }
 
     match /departments/{departmentId} {
-      allow get: if isSignedIn() && (
-        isDepartmentMember(departmentId)
-        || isCompanyMember(resource.data.companyId)
-      );
-      allow list: if isSignedIn() && isCompanyMember(resource.data.companyId);
+      allow get: if signedIn() && resource.data.companyId != null && isCompanyMember(resource.data.companyId) && (isDepartmentMember(departmentId) || isCompanyAdmin(resource.data.companyId));
+      allow list: if signedIn() && isCompanyMember(resource.data.companyId);
       allow create: if signedIn() && isCompanyAdmin(request.resource.data.companyId);
       allow update, delete: if isCompanyAdmin(resource.data.companyId);
-
       match /members/{userId} {
-        allow get, list: if isDepartmentMember(departmentId) || isCompanyAdmin(resource.data.companyId);
-        allow create, update, delete: if isCompanyAdmin(resource.data.companyId);
+        allow get, list: if isDepartmentMember(departmentId) || (signedIn() && isCompanyAdmin(get(/databases/$(database)/documents/departments/$(departmentId)).data.companyId));
+        allow create, update, delete: if signedIn() && isCompanyAdmin(get(/databases/$(database)/documents/departments/$(departmentId)).data.companyId);
       }
     }
 
@@ -81,56 +66,45 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == userId && request.resource.data.uid == userId;
       allow update: if signedIn() && request.auth.uid == userId && immutableIdentityFieldsUnchanged();
       allow delete: if false;
-
-      match /files/{fileId} {
-        allow get, list: if signedIn() && request.auth.uid == userId;
-        allow create, update: if signedIn() && request.auth.uid == userId;
-        allow delete: if signedIn() && request.auth.uid == userId;
-      }
     }
 
     match /conversations/{conversationId} {
-      allow get, list: if signedIn() && request.auth.uid in resource.data.memberIds;
-      allow create: if signedIn()
-        && request.resource.data.createdBy == request.auth.uid
-        && request.auth.uid in request.resource.data.memberIds;
-      allow update: if signedIn() && request.auth.uid in resource.data.memberIds;
-      allow delete: if signedIn() && request.auth.uid == resource.data.createdBy;
-
+      allow get: if conversationAccess(conversationId);
+      allow list: if false;
+      allow create, update, delete: if false;
       match /messages/{messageId} {
-        allow get, list: if signedIn()
-          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds;
-        allow create: if signedIn()
-          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds
-          && request.resource.data.senderId == request.auth.uid;
-        allow update: if signedIn()
-          && resource.data.senderId == request.auth.uid;
-        allow delete: if signedIn()
-          && resource.data.senderId == request.auth.uid;
+        allow get, list: if conversationAccess(conversationId);
+        allow create: if false;
+        allow update: if conversationAccess(conversationId) && resource.data.senderId == request.auth.uid && request.resource.data.companyId == resource.data.companyId;
+        allow delete: if false;
+      }
+      match /reads/{userId} {
+        allow get: if conversationAccess(conversationId) && request.auth.uid == userId;
+        allow write: if conversationAccess(conversationId) && request.auth.uid == userId;
+      }
+      match /typing/{userId} {
+        allow read: if conversationAccess(conversationId);
+        allow write: if conversationAccess(conversationId) && request.auth.uid == userId;
       }
     }
 
+    match /presence/{userId} {
+      allow get: if signedIn() && request.auth.uid == userId;
+      allow list: if false;
+      allow create, update, delete: if signedIn() && request.auth.uid == userId && isCompanyMember(request.resource.data.companyId);
+    }
+
+    match /notifications/{userId}/{notificationId} {
+      allow get, list: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && request.auth.uid == userId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
+      allow create, delete: if false;
+    }
+
     match /docs/{docId} {
-      allow get, list: if signedIn() && (
-        isCompanyMember(resource.data.companyId)
-        && (
-          resource.data.ownerId == request.auth.uid
-          || request.auth.uid in resource.data.viewerIds
-          || request.auth.uid in resource.data.editorIds
-        )
-      );
-      allow create: if signedIn()
-        && isCompanyMember(request.resource.data.companyId)
-        && request.resource.data.ownerId == request.auth.uid;
-      allow update: if signedIn()
-        && isCompanyMember(resource.data.companyId)
-        && (
-          resource.data.ownerId == request.auth.uid
-          || request.auth.uid in resource.data.editorIds
-        );
-      allow delete: if signedIn()
-        && isCompanyMember(resource.data.companyId)
-        && resource.data.ownerId == request.auth.uid;
+      allow get, list: if signedIn() && isCompanyMember(resource.data.companyId) && (resource.data.ownerId == request.auth.uid || request.auth.uid in resource.data.viewerIds || request.auth.uid in resource.data.editorIds);
+      allow create: if signedIn() && isCompanyMember(request.resource.data.companyId) && request.resource.data.ownerId == request.auth.uid;
+      allow update: if signedIn() && isCompanyMember(resource.data.companyId) && (resource.data.ownerId == request.auth.uid || request.auth.uid in resource.data.editorIds);
+      allow delete: if signedIn() && isCompanyMember(resource.data.companyId) && resource.data.ownerId == request.auth.uid;
     }
 
     match /transactions/{txId} {
@@ -157,8 +131,7 @@ service cloud.firestore {
     }
 
     match /system_configs/global {
-      allow read: if false;
-      allow write: if false;
+      allow read, write: if false;
     }
   }
 }
