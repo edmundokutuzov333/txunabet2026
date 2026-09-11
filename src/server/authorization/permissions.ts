@@ -23,7 +23,7 @@ export type MembershipRole = 'owner' | 'admin' | 'manager' | 'member' | 'viewer'
 
 export const ROLE_PERMISSIONS: Record<MembershipRole, readonly Permission[]> = {
   owner: Object.values(PERMISSIONS),
-  admin: Object.values(PERMISSIONS).filter((permission) => permission !== PERMISSIONS.PLATFORM_ADMIN),
+  admin: Object.values(PERMISSIONS),
   manager: [
     PERMISSIONS.USERS_READ,
     PERMISSIONS.DEPARTMENTS_READ,
