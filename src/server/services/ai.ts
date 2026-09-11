@@ -5,6 +5,8 @@ import { googleAI } from '@genkit-ai/google-genai';
 import { getAdminDb } from '@/server/firebase/admin';
 import { getConversationOrThrow } from '@/server/services/chat';
 import { requireDocument } from '@/server/services/documents';
+import { logError, logInfo } from '@/server/observability/logger';
+import { recordMetric } from '@/server/observability/metrics';
 
 const MAX_INPUT_CHARS = 12000;
 const MAX_CONTEXT_CHARS = 24000;
@@ -70,6 +72,7 @@ async function generateWithControls(params: { uid: string; action: AIAction; pro
   const prompt = clampText(params.prompt);
   if (!prompt) throw new Error('AI_INPUT_REQUIRED');
   const context = params.context.slice(0, MAX_CONTEXT_CHARS);
+  const started = performance.now();
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -79,11 +82,18 @@ async function generateWithControls(params: { uid: string; action: AIAction; pro
       ]);
       const text = response.text?.trim();
       if (!text) throw new Error('AI_EMPTY_RESPONSE');
+      const durationMs = Math.round(performance.now() - started);
+      recordMetric({ name: 'ai_request', value: durationMs, success: true, userId: params.uid });
+      logInfo({ event: 'ai.request.completed', userId: params.uid, durationMs, metadata: { action: params.action, attempt: attempt + 1 } });
       return text.slice(0, MAX_INPUT_CHARS);
-    } catch (error) { lastError = error; }
+    } catch (error) {
+      lastError = error;
+    }
   }
   const errorMessage = lastError instanceof Error ? lastError.message : 'AI_REQUEST_FAILED';
-  console.error('OryonAI request failed', { action: params.action, error: errorMessage });
+  const durationMs = Math.round(performance.now() - started);
+  recordMetric({ name: 'ai_request', value: durationMs, success: false, userId: params.uid });
+  logError({ event: 'ai.request.failed', userId: params.uid, durationMs, metadata: { action: params.action, error: errorMessage } });
   throw new Error(errorMessage);
 }
 
