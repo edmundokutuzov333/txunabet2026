@@ -13,25 +13,16 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [identityLoading, setIdentityLoading] = useState(false);
   const [identityAllowed, setIdentityAllowed] = useState<boolean | null>(null);
 
+  const isAuthPage = pathname.startsWith('/login') || pathname === '/forgot-password';
+  const isLandingPage = pathname === '/';
+
   useEffect(() => {
     if (isUserLoading) return;
-
-    const isAuthPage = pathname.startsWith('/login') || pathname === '/forgot-password';
-    const isLandingPage = pathname === '/';
-
-    if (!user && !isAuthPage && !isLandingPage) {
-      router.replace('/');
-      return;
-    }
-
-    if (user && (isAuthPage || isLandingPage)) {
-      router.replace('/dashboard');
-      return;
-    }
-  }, [user, isUserLoading, router, pathname]);
+    if (!user && !isAuthPage && !isLandingPage) router.replace('/');
+  }, [user, isUserLoading, router, isAuthPage, isLandingPage]);
 
   useEffect(() => {
-    if (!user || pathname.startsWith('/login') || pathname === '/forgot-password' || pathname === '/') {
+    if (!user) {
       setIdentityAllowed(null);
       setIdentityLoading(false);
       return;
@@ -54,9 +45,22 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [user, pathname]);
+  }, [user]);
 
-  if (isUserLoading || identityLoading) {
+  useEffect(() => {
+    if (isUserLoading || identityLoading || identityAllowed === null) return;
+
+    if (user && identityAllowed && (isAuthPage || isLandingPage)) {
+      router.replace('/dashboard');
+      return;
+    }
+
+    if (user && !identityAllowed && !isAuthPage && !isLandingPage) {
+      router.replace('/login');
+    }
+  }, [user, isUserLoading, identityLoading, identityAllowed, isAuthPage, isLandingPage, router]);
+
+  if (isUserLoading || (user && identityLoading)) {
     return (
       <main className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 bg-slate-950">
         <TxunaLogo className="mx-auto mb-4 w-52 h-16" />
@@ -68,19 +72,18 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (user && identityAllowed === false && !pathname.startsWith('/login') && pathname !== '/' && pathname !== '/forgot-password') {
+  if (user && !identityAllowed && !isAuthPage && !isLandingPage) {
     return (
       <main className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 bg-slate-950">
         <div className="max-w-md text-center">
           <ShieldAlert className="mx-auto h-14 w-14 text-destructive mb-5" />
           <h1 className="text-2xl font-semibold text-foreground mb-2">Acesso não autorizado</h1>
-          <p className="text-muted-foreground mb-6">A sua conta Firebase existe, mas não possui uma membership empresarial ativa nesta plataforma.</p>
+          <p className="text-muted-foreground mb-6">A conta Firebase não possui uma membership empresarial ativa nesta plataforma.</p>
           <button className="text-primary hover:underline" onClick={() => router.replace('/login')}>Voltar ao Login</button>
         </div>
       </main>
     );
   }
 
-  if (isUserLoading && pathname !== '/') return null;
   return <>{children}</>;
 }
