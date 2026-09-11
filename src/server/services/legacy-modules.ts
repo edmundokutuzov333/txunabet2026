@@ -29,6 +29,7 @@ const CONFIG: Record<ModuleName, ModuleConfig> = {
 };
 
 const MAX_RECORDS = 200;
+const CLOUD_IMMUTABLE_FIELDS = new Set(['storagePath', 'mimeType', 'size', 'ownerId', 'createdBy']);
 
 function configFor(module: string): ModuleConfig {
   if (!(module in CONFIG)) throw new Error('MODULE_NOT_FOUND');
@@ -61,6 +62,12 @@ function hasCloudAccess(identity: AuthenticatedIdentity, data: DocumentData | un
   if (isPrivileged(identity)) return true;
   if (data.ownerId === identity.uid || data.createdBy === identity.uid) return true;
   return Array.isArray(data.sharedWith) && data.sharedWith.includes(identity.uid);
+}
+
+function hasCloudWriteAccess(identity: AuthenticatedIdentity, data: DocumentData | undefined): boolean {
+  if (!data || data.companyId !== identity.companyId) return false;
+  if (isPrivileged(identity)) return true;
+  return data.ownerId === identity.uid || data.createdBy === identity.uid;
 }
 
 async function ensureRecordAccess(module: ModuleName, identity: AuthenticatedIdentity, data: DocumentData | undefined): Promise<void> {
@@ -96,6 +103,7 @@ export async function createModuleRecord(module: ModuleName, rawData: unknown): 
   const config = configFor(module);
   const identity = await requirePermission(config.write);
   const data = sanitizeModulePayload(rawData);
+  if (module === 'cloud' && data.type !== 'folder') throw new Error('CLOUD_FILES_REQUIRE_UPLOAD');
   const title = titleFor(config, data);
   if (config.titleField && !title) throw new Error('TITLE_REQUIRED');
   const ref = getAdminDb().collection(config.collection).doc();
@@ -112,9 +120,12 @@ export async function updateModuleRecord(module: ModuleName, id: string, rawData
   const ref = getAdminDb().collection(config.collection).doc(id);
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('NOT_FOUND');
-  await ensureRecordAccess(module, identity, snapshot.data());
-  const data = sanitizeModulePayload(rawData);
-  const merged = { ...(snapshot.data() ?? {}), ...data } as Record<string, unknown>;
+  const current = snapshot.data();
+  await ensureRecordAccess(module, identity, current);
+  if (module === 'cloud' && !hasCloudWriteAccess(identity, current)) throw new Error('FORBIDDEN');
+  let data = sanitizeModulePayload(rawData);
+  if (module === 'cloud') data = Object.fromEntries(Object.entries(data).filter(([key]) => !CLOUD_IMMUTABLE_FIELDS.has(key)));
+  const merged = { ...(current ?? {}), ...data } as Record<string, unknown>;
   const title = titleFor(config, merged);
   if (config.titleField && !title) throw new Error('TITLE_REQUIRED');
   await ref.update({ ...data, updatedBy: identity.uid, updatedAt: FieldValue.serverTimestamp(), version: FieldValue.increment(1), searchTitle: title.toLowerCase() });
@@ -131,6 +142,7 @@ export async function deleteModuleRecord(module: ModuleName, id: string): Promis
   if (!snapshot.exists) throw new Error('NOT_FOUND');
   const data = snapshot.data();
   await ensureRecordAccess(module, identity, data);
+  if (module === 'cloud' && !hasCloudWriteAccess(identity, data)) throw new Error('FORBIDDEN');
   if (module === 'cloud' && typeof data?.storagePath === 'string') await getAdminStorage().bucket().file(data.storagePath).delete({ ignoreNotFound: true });
   await ref.delete();
   await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'delete', resourceType: module, resourceId: id });
