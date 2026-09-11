@@ -64,7 +64,7 @@ jobs:
       - run: npm run build
 
   rules:
-    name: Firestore security rules
+    name: Firestore and Storage security rules
     needs: quality
     runs-on: ubuntu-latest
     steps:
@@ -74,7 +74,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: npx --yes firebase-tools@latest emulators:exec --only firestore --project demo-oryon "npm run test:rules"
+      - run: npx --yes firebase-tools@latest emulators:exec --only firestore,storage --project demo-oryon "npm run test:rules"
 
   functions:
     name: Functions build and tests
