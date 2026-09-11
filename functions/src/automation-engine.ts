@@ -25,13 +25,11 @@ const WorkflowSchema = z.object({
   active: z.boolean().default(true),
   steps: z.array(WorkflowStepSchema).min(1).max(50),
 });
-
 const EventSchema = z.object({
   eventName: z.string().min(1).max(180),
   eventId: z.string().min(1).max(180).optional(),
   payload: z.record(z.unknown()).default({}),
 });
-
 const AutomationSchema = z.object({
   id: z.string().min(1).max(180),
   workflowId: z.string().min(1).max(180),
@@ -39,20 +37,36 @@ const AutomationSchema = z.object({
 });
 
 const MODULE_COLLECTIONS: Record<string, string> = {
-  calendar: 'module_calendar_events', meetings: 'module_meetings', integrations: 'module_integrations',
-  'knowledge-base': 'module_knowledge_articles', campaigns: 'module_campaigns', tasks: 'module_tasks',
-  reports: 'module_reports', pulse: 'module_pulse_items', workspaces: 'module_workspaces',
+  calendar: 'module_calendar_events',
+  meetings: 'module_meetings',
+  integrations: 'module_integrations',
+  'knowledge-base': 'module_knowledge_articles',
+  campaigns: 'module_campaigns',
+  tasks: 'module_tasks',
+  reports: 'module_reports',
+  pulse: 'module_pulse_items',
+  workspaces: 'module_workspaces',
 };
 
 function now() { return admin.firestore.Timestamp.now(); }
 function minuteKey(date: Date, timezone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
   const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '00';
   return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 }
 
-function cronFieldMatches(value: number, field: string, min: number, max: number): boolean {
-  return field.trim().split(',').some((part) => {
+function cronFieldMatches(value: number, field: string, min: number, max: number, normalize?: (raw: number) => number): boolean {
+  const trimmed = field.trim();
+  if (!trimmed) return false;
+  return trimmed.split(',').some((part) => {
     const [base, stepText] = part.split('/');
     const step = stepText ? Number(stepText) : 1;
     if (!Number.isInteger(step) || step <= 0) return false;
@@ -62,31 +76,49 @@ function cronFieldMatches(value: number, field: string, min: number, max: number
       if (base.includes('-')) {
         const [a, b] = base.split('-').map(Number);
         if (!Number.isInteger(a) || !Number.isInteger(b)) return false;
-        start = a; end = b;
+        start = a;
+        end = b;
       } else {
         const exact = Number(base);
         if (!Number.isInteger(exact)) return false;
-        start = exact; end = exact;
+        start = exact;
+        end = exact;
       }
     }
     if (start < min || end > max || start > end) return false;
-    if (base && base !== '*' && !base.includes('-')) return value === start;
-    return value >= start && value <= end && (value - start) % step === 0;
+    const normalizedValue = normalize ? normalize(value) : value;
+    const normalizedStart = normalize ? normalize(start) : start;
+    const normalizedEnd = normalize ? normalize(end) : end;
+    if (base && base !== '*' && !base.includes('-') && !stepText) return normalizedValue === normalizedStart;
+    if (normalizedStart > normalizedEnd) return false;
+    return normalizedValue >= normalizedStart && normalizedValue <= normalizedEnd && (normalizedValue - normalizedStart) % step === 0;
   });
 }
 
 export function cronMatches(expression: string, date: Date, timezone: string): boolean {
   const fields = expression.trim().split(/\s+/);
   if (fields.length !== 5) return false;
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).formatToParts(date);
-  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
-  const weekdayName = parts.find((part) => part.type === 'weekday')?.value ?? 'Sun';
-  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekdayName);
-  return cronFieldMatches(get('minute'), fields[0], 0, 59)
-    && cronFieldMatches(get('hour'), fields[1], 0, 23)
-    && cronFieldMatches(get('day'), fields[2], 1, 31)
-    && cronFieldMatches(get('month'), fields[3], 1, 12)
-    && cronFieldMatches(weekday, fields[4], 0, 6);
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short', year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+    const weekdayName = parts.find((part) => part.type === 'weekday')?.value ?? 'Sun';
+    const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekdayName);
+    if (!cronFieldMatches(get('minute'), fields[0], 0, 59) || !cronFieldMatches(get('hour'), fields[1], 0, 23) || !cronFieldMatches(get('month'), fields[3], 1, 12)) return false;
+    const domMatches = cronFieldMatches(get('day'), fields[2], 1, 31);
+    const dowMatches = cronFieldMatches(weekday, fields[4], 0, 7, (raw) => raw === 7 ? 0 : raw);
+    const domWildcard = fields[2] === '*';
+    const dowWildcard = fields[4] === '*';
+    if (domWildcard) return dowMatches;
+    if (dowWildcard) return domMatches;
+    return domMatches || dowMatches;
+  } catch {
+    return false;
+  }
+}
+
+export function retryDelayMs(attempt: number): number {
+  const safeAttempt = Number.isFinite(attempt) ? Math.max(1, Math.floor(attempt)) : 1;
+  return Math.min(15 * 60 * 1000, 30 * 1000 * (2 ** (safeAttempt - 1)));
 }
 
 function template(value: unknown, context: Record<string, unknown>): unknown {
@@ -104,12 +136,10 @@ function template(value: unknown, context: Record<string, unknown>): unknown {
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, template(item, context)]));
   return value;
 }
-
 function matchesFilter(payload: Record<string, unknown>, filter: unknown): boolean {
   if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return true;
   return Object.entries(filter as Record<string, unknown>).every(([key, expected]) => payload[key] === expected);
 }
-
 async function activeAutomations(): Promise<admin.firestore.QueryDocumentSnapshot[]> {
   const results: admin.firestore.QueryDocumentSnapshot[] = [];
   let lastId: string | undefined;
@@ -123,7 +153,6 @@ async function activeAutomations(): Promise<admin.firestore.QueryDocumentSnapsho
     if (!lastId) return results;
   }
 }
-
 async function enqueueJob(input: { automationId: string; workflowId: string; workflowVersion: number; companyId: string; trigger: string; payload: Record<string, unknown>; idempotencyKey: string }): Promise<string> {
   const ref = db.collection('automation_jobs').doc(input.idempotencyKey);
   await db.runTransaction(async (transaction) => {
@@ -132,7 +161,6 @@ async function enqueueJob(input: { automationId: string; workflowId: string; wor
   });
   return ref.id;
 }
-
 async function scheduleCrons(date: Date): Promise<void> {
   const automations = await activeAutomations();
   for (const automation of automations) {
@@ -141,47 +169,50 @@ async function scheduleCrons(date: Date): Promise<void> {
     if (!trigger || trigger.type !== 'cron') continue;
     const cron = String(trigger.cron ?? '');
     const timezone = String(trigger.timezone ?? 'UTC');
-    try { if (!cronMatches(cron, date, timezone)) continue; } catch { continue; }
-    const key = minuteKey(date, timezone);
-    const jobId = `${automation.id}_${key.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+    if (!cronMatches(cron, date, timezone)) continue;
+    const minute = minuteKey(date, timezone);
+    const jobId = `${automation.id}_${minute}`.replace(/[^A-Za-z0-9_-]/g, '_');
     await db.runTransaction(async (transaction) => {
       const fresh = await transaction.get(automation.ref);
       const freshData = fresh.data() ?? {};
-      if (freshData.active !== true || freshData.lastScheduledKey === key) return;
+      if (freshData.active !== true || freshData.lastScheduledKey === minute) return;
       const workflowId = typeof freshData.workflowId === 'string' ? freshData.workflowId : '';
       const companyId = typeof freshData.companyId === 'string' ? freshData.companyId : '';
       if (!workflowId || !companyId) return;
-      const workflowRef = db.collection('module_workflows').doc(workflowId);
-      const workflow = await transaction.get(workflowRef);
-      const workflowVersion = Number(workflow.data()?.version ?? 1);
+      const workflow = await transaction.get(db.collection('module_workflows').doc(workflowId));
       if (!workflow.exists || workflow.data()?.companyId !== companyId) return;
+      const workflowVersion = Number(workflow.data()?.version ?? 1);
       const jobRef = db.collection('automation_jobs').doc(jobId);
-      const existing = await transaction.get(jobRef);
-      if (!existing.exists) transaction.create(jobRef, { id: jobId, companyId, automationId: automation.id, workflowId, workflowVersion, trigger: 'cron', payload: { scheduledAt: date.toISOString(), minuteKey: key }, idempotencyKey: jobId, status: 'pending', attempts: 0, maxAttempts: MAX_ATTEMPTS, createdAt: now(), updatedAt: now(), nextAttemptAt: now() });
-      transaction.update(automation.ref, { lastScheduledKey: key, updatedAt: now() });
+      if (!(await transaction.get(jobRef)).exists) transaction.create(jobRef, { id: jobId, companyId, automationId: automation.id, workflowId, workflowVersion, trigger: 'cron', payload: { scheduledAt: date.toISOString(), minuteKey: minute }, idempotencyKey: jobId, status: 'pending', attempts: 0, maxAttempts: MAX_ATTEMPTS, createdAt: now(), updatedAt: now(), nextAttemptAt: now() });
+      transaction.update(automation.ref, { lastScheduledKey: minute, updatedAt: now() });
     });
   }
 }
-
 async function enqueueMatchingEvent(companyId: string, eventName: string, eventId: string | undefined, payload: Record<string, unknown>): Promise<string[]> {
-  const snapshot = await db.collection('module_automations').where('companyId', '==', companyId).limit(PAGE_SIZE).get();
   const jobs: string[] = [];
-  for (const doc of snapshot.docs) {
-    const data = doc.data();
-    if (data.active !== true) continue;
-    const trigger = data.trigger as Record<string, unknown> | undefined;
-    if (!trigger || trigger.type !== 'event' || trigger.eventName !== eventName || !matchesFilter(payload, trigger.filter)) continue;
-    const workflowId = typeof data.workflowId === 'string' ? data.workflowId : '';
-    if (!workflowId) continue;
-    const workflow = await db.collection('module_workflows').doc(workflowId).get();
-    if (!workflow.exists || workflow.data()?.companyId !== companyId) continue;
-    const eventKey = eventId || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const idempotencyKey = `${doc.id}_${eventName}_${eventKey}`;
-    jobs.push(await enqueueJob({ automationId: doc.id, workflowId, workflowVersion: Number(workflow.data()?.version ?? 1), companyId, trigger: 'event', payload, idempotencyKey }));
+  let lastId: string | undefined;
+  const eventKey = eventId || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  while (true) {
+    let query = db.collection('module_automations').where('companyId', '==', companyId).orderBy(admin.firestore.FieldPath.documentId()).limit(PAGE_SIZE);
+    if (lastId) query = query.startAfter(lastId);
+    const snapshot = await query.get();
+    for (const doc of snapshot.docs) {
+      const data = doc.data();
+      if (data.active !== true) continue;
+      const trigger = data.trigger as Record<string, unknown> | undefined;
+      if (!trigger || trigger.type !== 'event' || trigger.eventName !== eventName || !matchesFilter(payload, trigger.filter)) continue;
+      const workflowId = typeof data.workflowId === 'string' ? data.workflowId : '';
+      if (!workflowId) continue;
+      const workflow = await db.collection('module_workflows').doc(workflowId).get();
+      if (!workflow.exists || workflow.data()?.companyId !== companyId) continue;
+      const idempotencyKey = `${doc.id}_${eventName}_${eventKey}`;
+      jobs.push(await enqueueJob({ automationId: doc.id, workflowId, workflowVersion: Number(workflow.data()?.version ?? 1), companyId, trigger: 'event', payload: { ...payload, eventName, eventId: eventId ?? null }, idempotencyKey }));
+    }
+    if (snapshot.size < PAGE_SIZE) return jobs;
+    lastId = snapshot.docs[snapshot.docs.length - 1]?.id;
+    if (!lastId) return jobs;
   }
-  return jobs;
 }
-
 async function claimJob(ref: admin.firestore.DocumentReference): Promise<Record<string, unknown> | null> {
   return db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(ref);
@@ -199,7 +230,6 @@ async function claimJob(ref: admin.firestore.DocumentReference): Promise<Record<
     return { ...data, id: snapshot.id, attempts };
   });
 }
-
 async function executeStep(companyId: string, jobId: string, step: z.infer<typeof WorkflowStepSchema>, payload: Record<string, unknown>): Promise<void> {
   const config = template(step.config, { payload, job: { id: jobId }, company: { id: companyId } }) as Record<string, unknown>;
   if (step.type === 'log') { logger.info('Automation workflow step', { companyId, jobId, stepId: step.id, message: String(config.message ?? step.name ?? '') }); return; }
@@ -227,6 +257,7 @@ async function executeStep(companyId: string, jobId: string, step: z.infer<typeo
   const collection = MODULE_COLLECTIONS[module];
   if (!collection) throw new Error('MODULE_NOT_ALLOWED');
   const moduleData = { ...(config.data && typeof config.data === 'object' && !Array.isArray(config.data) ? config.data as Record<string, unknown> : {}) };
+  for (const key of ['id', 'companyId', 'ownerId', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'version', 'searchTitle']) delete moduleData[key];
   if (step.type === 'module.create') {
     const deterministicId = `job_${jobId.slice(0, 40)}_${step.id}`;
     await db.collection(collection).doc(deterministicId).set({ ...moduleData, id: deterministicId, companyId, createdBy: 'automation-worker', updatedBy: 'automation-worker', createdAt: now(), updatedAt: now(), version: 1 }, { merge: true });
@@ -240,101 +271,39 @@ async function executeStep(companyId: string, jobId: string, step: z.infer<typeo
   if (step.type === 'module.update') { await ref.update({ ...moduleData, updatedBy: 'automation-worker', updatedAt: now(), version: admin.firestore.FieldValue.increment(1) }); return; }
   await ref.delete();
 }
-
 async function executeJob(job: Record<string, unknown>): Promise<void> {
-  const jobId = String(job.id);
-  const companyId = String(job.companyId);
-  const workflowId = String(job.workflowId);
-  const workflowVersion = Number(job.workflowVersion ?? 1);
+  const jobId = String(job.id); const companyId = String(job.companyId); const workflowId = String(job.workflowId); const workflowVersion = Number(job.workflowVersion ?? 1);
   const workflowSnapshot = await db.collection('module_workflows').doc(workflowId).collection('versions').doc(String(workflowVersion)).get();
   if (!workflowSnapshot.exists || workflowSnapshot.data()?.active !== true) throw new Error('WORKFLOW_VERSION_NOT_FOUND');
-  const workflow = WorkflowSchema.safeParse(workflowSnapshot.data());
-  if (!workflow.success) throw new Error('WORKFLOW_INVALID');
+  const workflow = WorkflowSchema.safeParse(workflowSnapshot.data()); if (!workflow.success) throw new Error('WORKFLOW_INVALID');
   const runRef = db.collection('automation_runs').doc(jobId);
   await runRef.set({ id: jobId, jobId, automationId: job.automationId, workflowId, workflowVersion, companyId, status: 'running', attempts: job.attempts, startedAt: now(), updatedAt: now() }, { merge: true });
   try {
     for (const step of workflow.data.steps) {
       const stepRef = runRef.collection('steps').doc(step.id);
-      const stepState = await stepRef.get();
-      if (stepState.data()?.status === 'succeeded') continue;
-      await db.runTransaction(async (transaction) => {
-        const current = await transaction.get(stepRef);
-        if (current.data()?.status === 'succeeded') return;
-        transaction.set(stepRef, { stepId: step.id, status: 'running', attempts: Number(current.data()?.attempts ?? 0) + 1, updatedAt: now() }, { merge: true });
-      });
-      try {
-        await executeStep(companyId, jobId, step, (job.payload && typeof job.payload === 'object') ? job.payload as Record<string, unknown> : {});
-        await stepRef.set({ status: 'succeeded', finishedAt: now(), updatedAt: now(), error: admin.firestore.FieldValue.delete() }, { merge: true });
-      } catch (error) {
-        await stepRef.set({ status: 'failed', error: error instanceof Error ? error.message : 'STEP_FAILED', updatedAt: now() }, { merge: true });
-        throw error;
-      }
+      const stepState = await stepRef.get(); if (stepState.data()?.status === 'succeeded') continue;
+      await db.runTransaction(async (transaction) => { const current = await transaction.get(stepRef); if (current.data()?.status === 'succeeded') return; transaction.set(stepRef, { stepId: step.id, status: 'running', attempts: Number(current.data()?.attempts ?? 0) + 1, updatedAt: now() }, { merge: true }); });
+      try { await executeStep(companyId, jobId, step, (job.payload && typeof job.payload === 'object') ? job.payload as Record<string, unknown> : {}); await stepRef.set({ status: 'succeeded', finishedAt: now(), updatedAt: now(), error: admin.firestore.FieldValue.delete() }, { merge: true }); }
+      catch (error) { await stepRef.set({ status: 'failed', error: error instanceof Error ? error.message : 'STEP_FAILED', updatedAt: now() }, { merge: true }); throw error; }
     }
     await runRef.set({ status: 'succeeded', finishedAt: now(), updatedAt: now() }, { merge: true });
-  } catch (error) {
-    await runRef.set({ status: 'failed', error: error instanceof Error ? error.message : 'RUN_FAILED', updatedAt: now() }, { merge: true });
-    throw error;
-  }
+  } catch (error) { await runRef.set({ status: 'failed', error: error instanceof Error ? error.message : 'RUN_FAILED', updatedAt: now() }, { merge: true }); throw error; }
 }
-
 async function processQueue(): Promise<void> {
   const pending = await db.collection('automation_jobs').where('status', '==', 'pending').limit(MAX_JOBS_PER_TICK).get();
   const running = await db.collection('automation_jobs').where('status', '==', 'running').limit(MAX_JOBS_PER_TICK).get();
   for (const ref of [...pending.docs, ...running.docs]) {
-    const job = await claimJob(ref.ref);
-    if (!job) continue;
-    try {
-      await executeJob(job);
-      await ref.ref.update({ status: 'succeeded', leaseUntil: admin.firestore.FieldValue.delete(), finishedAt: now(), updatedAt: now(), error: admin.firestore.FieldValue.delete() });
-    } catch (error) {
+    const job = await claimJob(ref.ref); if (!job) continue;
+    try { await executeJob(job); await ref.ref.update({ status: 'succeeded', leaseUntil: admin.firestore.FieldValue.delete(), finishedAt: now(), updatedAt: now(), error: admin.firestore.FieldValue.delete() }); }
+    catch (error) {
       const attempts = Number(job.attempts ?? 1);
       const message = error instanceof Error ? error.message : 'JOB_FAILED';
-      if (attempts >= MAX_ATTEMPTS) {
-        await ref.ref.update({ status: 'dead', leaseUntil: admin.firestore.FieldValue.delete(), finishedAt: now(), updatedAt: now(), error: message });
-        await db.collection('automation_dead_letters').doc(ref.id).set({ ...job, status: 'dead', error: message, deadAt: now() }, { merge: true });
-      } else {
-        const delayMs = Math.min(15 * 60 * 1000, 30 * 1000 * (2 ** (attempts - 1)));
-        await ref.ref.update({ status: 'pending', nextAttemptAt: admin.firestore.Timestamp.fromMillis(Date.now() + delayMs), leaseUntil: admin.firestore.FieldValue.delete(), updatedAt: now(), error: message });
-      }
+      if (attempts >= MAX_ATTEMPTS) { await ref.ref.update({ status: 'dead', leaseUntil: admin.firestore.FieldValue.delete(), finishedAt: now(), updatedAt: now(), error: message }); await db.collection('automation_dead_letters').doc(ref.id).set({ ...job, status: 'dead', error: message, deadAt: now() }, { merge: true }); }
+      else { await ref.ref.update({ status: 'pending', nextAttemptAt: admin.firestore.Timestamp.fromMillis(Date.now() + retryDelayMs(attempts)), leaseUntil: admin.firestore.FieldValue.delete(), updatedAt: now(), error: message }); }
       logger.error('Automation job failed', { jobId: ref.id, attempts, error: message });
     }
   }
 }
-
-export const automationWorker = onSchedule({ schedule: '* * * * *', timeZone: 'UTC', region: REGION, timeoutSeconds: 540, memory: '512MiB' }, async () => {
-  const started = Date.now();
-  await scheduleCrons(new Date());
-  await processQueue();
-  logger.info('Automation worker tick completed', { durationMs: Date.now() - started });
-});
-
-export const triggerAutomationEvent = onCall({ region: REGION }, async (request) => {
-  if (!request.auth) throw new HttpsError('unauthenticated', 'A autenticação é necessária.');
-  const companyId = typeof request.auth.token.companyId === 'string' ? request.auth.token.companyId : '';
-  if (!companyId) throw new HttpsError('permission-denied', 'Empresa não encontrada.');
-  const member = await db.collection('companies').doc(companyId).collection('members').doc(request.auth.uid).get();
-  if (!member.exists || member.data()?.status !== 'active') throw new HttpsError('permission-denied', 'Membership inactiva.');
-  const parsed = EventSchema.safeParse(request.data);
-  if (!parsed.success) throw new HttpsError('invalid-argument', 'Evento inválido.');
-  const jobs = await enqueueMatchingEvent(companyId, parsed.data.eventName, parsed.data.eventId, parsed.data.payload);
-  return { queued: jobs.length, jobIds: jobs };
-});
-
-export const runAutomationNow = onCall({ region: REGION }, async (request) => {
-  if (!request.auth) throw new HttpsError('unauthenticated', 'A autenticação é necessária.');
-  const companyId = typeof request.auth.token.companyId === 'string' ? request.auth.token.companyId : '';
-  if (!companyId) throw new HttpsError('permission-denied', 'Empresa não encontrada.');
-  const member = await db.collection('companies').doc(companyId).collection('members').doc(request.auth.uid).get();
-  if (!member.exists || !['owner', 'admin', 'manager'].includes(String(member.data()?.role))) throw new HttpsError('permission-denied', 'Sem permissão para executar automações.');
-  const parsed = AutomationSchema.safeParse(request.data);
-  if (!parsed.success) throw new HttpsError('invalid-argument', 'Dados da automação inválidos.');
-  const automation = await db.collection('module_automations').doc(parsed.data.id).get();
-  if (!automation.exists || automation.data()?.companyId !== companyId || automation.data()?.active !== true) throw new HttpsError('failed-precondition', 'Automação inexistente ou inactiva.');
-  const workflowId = String(automation.data()?.workflowId ?? '');
-  const workflow = await db.collection('module_workflows').doc(workflowId).get();
-  if (!workflow.exists || workflow.data()?.companyId !== companyId) throw new HttpsError('failed-precondition', 'Workflow inexistente.');
-  const workflowVersion = Number(workflow.data()?.version ?? 1);
-  const idempotencyKey = `manual_${parsed.data.id}_${Date.now()}_${request.auth.uid}`;
-  const jobId = await enqueueJob({ automationId: parsed.data.id, workflowId, workflowVersion, companyId, trigger: 'manual', payload: parsed.data.payload, idempotencyKey });
-  return { queued: true, jobId, workflowVersion };
-});
+export const automationWorker = onSchedule({ schedule: '* * * * *', timeZone: 'UTC', region: REGION, timeoutSeconds: 540, memory: '512MiB' }, async () => { const started = Date.now(); await scheduleCrons(new Date()); await processQueue(); logger.info('Automation worker tick completed', { durationMs: Date.now() - started }); });
+export const triggerAutomationEvent = onCall({ region: REGION }, async (request) => { if (!request.auth) throw new HttpsError('unauthenticated', 'A autenticação é necessária.'); const companyId = typeof request.auth.token.companyId === 'string' ? request.auth.token.companyId : ''; if (!companyId) throw new HttpsError('permission-denied', 'Empresa não encontrada.'); const member = await db.collection('companies').doc(companyId).collection('members').doc(request.auth.uid).get(); if (!member.exists || member.data()?.status !== 'active') throw new HttpsError('permission-denied', 'Membership inactiva.'); const parsed = EventSchema.safeParse(request.data); if (!parsed.success) throw new HttpsError('invalid-argument', 'Evento inválido.'); const jobs = await enqueueMatchingEvent(companyId, parsed.data.eventName, parsed.data.eventId, parsed.data.payload); return { queued: jobs.length, jobIds: jobs }; });
+export const runAutomationNow = onCall({ region: REGION }, async (request) => { if (!request.auth) throw new HttpsError('unauthenticated', 'A autenticação é necessária.'); const companyId = typeof request.auth.token.companyId === 'string' ? request.auth.token.companyId : ''; if (!companyId) throw new HttpsError('permission-denied', 'Empresa não encontrada.'); const member = await db.collection('companies').doc(companyId).collection('members').doc(request.auth.uid).get(); if (!member.exists || !['owner', 'admin', 'manager'].includes(String(member.data()?.role))) throw new HttpsError('permission-denied', 'Sem permissão para executar automações.'); const parsed = AutomationSchema.safeParse(request.data); if (!parsed.success) throw new HttpsError('invalid-argument', 'Dados da automação inválidos.'); const automation = await db.collection('module_automations').doc(parsed.data.id).get(); if (!automation.exists || automation.data()?.companyId !== companyId || automation.data()?.active !== true) throw new HttpsError('failed-precondition', 'Automação inexistente ou inactiva.'); const workflowId = String(automation.data()?.workflowId ?? ''); const workflow = await db.collection('module_workflows').doc(workflowId).get(); if (!workflow.exists || workflow.data()?.companyId !== companyId) throw new HttpsError('failed-precondition', 'Workflow inexistente.'); const workflowVersion = Number(workflow.data()?.version ?? 1); const idempotencyKey = `manual_${parsed.data.id}_${Date.now()}_${request.auth.uid}`; const jobId = await enqueueJob({ automationId: parsed.data.id, workflowId, workflowVersion, companyId, trigger: 'manual', payload: parsed.data.payload, idempotencyKey }); return { queued: true, jobId, workflowVersion }; });
