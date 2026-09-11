@@ -20,12 +20,7 @@ export type ModuleName =
   | 'pulse'
   | 'workspaces';
 
-type ModuleConfig = {
-  collection: string;
-  read: Permission;
-  write: Permission;
-  titleField?: string;
-};
+type ModuleConfig = { collection: string; read: Permission; write: Permission; titleField?: string };
 
 const CONFIG: Record<ModuleName, ModuleConfig> = {
   cloud: { collection: 'module_cloud_files', read: PERMISSIONS.FILES_READ, write: PERMISSIONS.FILES_WRITE, titleField: 'name' },
@@ -64,9 +59,8 @@ function normalizePrimitive(value: unknown): unknown {
 
 function sanitizePayload(payload: unknown): Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('INVALID_PAYLOAD');
-  const entries = Object.entries(payload as Record<string, unknown>).slice(0, MAX_KEYS);
   const result: Record<string, unknown> = {};
-  for (const [key, value] of entries) {
+  for (const [key, value] of Object.entries(payload as Record<string, unknown>).slice(0, MAX_KEYS)) {
     if (!SAFE_KEY.test(key)) continue;
     const normalized = normalizePrimitive(value);
     if (normalized !== undefined) result[key] = normalized;
@@ -78,17 +72,12 @@ function serialize(value: unknown): unknown {
   if (value instanceof Timestamp) return value.toDate().toISOString();
   if (value instanceof Date) return value.toISOString();
   if (Array.isArray(value)) return value.map(serialize);
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) out[key] = serialize(item);
-    return out;
-  }
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, serialize(item)]));
   return value;
 }
 
-function publicRecord(doc: FirebaseFirestore.QueryDocumentSnapshot<DocumentData> | FirebaseFirestore.DocumentSnapshot<DocumentData>): Record<string, unknown> {
-  const data = doc.data() ?? {};
-  return serialize({ ...data, id: doc.id }) as Record<string, unknown>;
+function publicRecord(doc: { id: string; data: () => DocumentData | undefined }): Record<string, unknown> {
+  return serialize({ ...(doc.data() ?? {}), id: doc.id }) as Record<string, unknown>;
 }
 
 function titleFor(config: ModuleConfig, data: Record<string, unknown>): string {
@@ -96,19 +85,17 @@ function titleFor(config: ModuleConfig, data: Record<string, unknown>): string {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, 240) : 'Sem título';
 }
 
-async function ensureCompanyAccess(identity: AuthenticatedIdentity, data: DocumentData): Promise<void> {
-  if (data.companyId !== identity.companyId) throw new Error('FORBIDDEN');
+async function ensureCompanyAccess(identity: AuthenticatedIdentity, data: DocumentData | undefined): Promise<void> {
+  if (!data || data.companyId !== identity.companyId) throw new Error('FORBIDDEN');
 }
 
 export async function listModuleRecords(module: ModuleName, options?: { q?: string; limit?: number }): Promise<Record<string, unknown>[]> {
   const config = configFor(module);
   const identity = await requirePermission(config.read);
-  let query = getAdminDb().collection(config.collection).where('companyId', '==', identity.companyId).orderBy('updatedAt', 'desc').limit(Math.min(options?.limit ?? MAX_RECORDS, MAX_RECORDS));
-  const snapshot = await query.get();
-  const records = snapshot.docs.map(publicRecord);
+  const snapshot = await getAdminDb().collection(config.collection).where('companyId', '==', identity.companyId).limit(Math.min(options?.limit ?? MAX_RECORDS, MAX_RECORDS)).get();
+  const records = snapshot.docs.map(publicRecord).sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
   const q = options?.q?.trim().toLowerCase();
-  if (!q) return records;
-  return records.filter((record) => JSON.stringify(record).toLowerCase().includes(q));
+  return q ? records.filter((record) => JSON.stringify(record).toLowerCase().includes(q)) : records;
 }
 
 export async function getModuleRecord(module: ModuleName, id: string): Promise<Record<string, unknown>> {
@@ -128,17 +115,7 @@ export async function createModuleRecord(module: ModuleName, rawData: unknown): 
   const title = titleFor(config, data);
   const ref = getAdminDb().collection(config.collection).doc();
   const now = FieldValue.serverTimestamp();
-  await ref.create({
-    ...data,
-    id: ref.id,
-    companyId: identity.companyId,
-    createdBy: identity.uid,
-    updatedBy: identity.uid,
-    createdAt: now,
-    updatedAt: now,
-    version: 1,
-    searchTitle: title.toLowerCase(),
-  });
+  await ref.create({ ...data, id: ref.id, companyId: identity.companyId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: now, updatedAt: now, version: 1, searchTitle: title.toLowerCase() });
   await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'create', resourceType: module, resourceId: ref.id, metadata: { title } });
   return getModuleRecord(module, ref.id);
 }
@@ -152,7 +129,7 @@ export async function updateModuleRecord(module: ModuleName, id: string, rawData
   if (!snapshot.exists) throw new Error('NOT_FOUND');
   await ensureCompanyAccess(identity, snapshot.data());
   const data = sanitizePayload(rawData);
-  const title = titleFor(config, { ...snapshot.data(), ...data });
+  const title = titleFor(config, { ...(snapshot.data() ?? {}), ...data });
   await ref.update({ ...data, updatedBy: identity.uid, updatedAt: FieldValue.serverTimestamp(), version: FieldValue.increment(1), searchTitle: title.toLowerCase() });
   await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'update', resourceType: module, resourceId: id, metadata: { title } });
   return getModuleRecord(module, id);
@@ -174,23 +151,18 @@ export async function getModuleAnalytics(): Promise<{ totals: Record<string, num
   const identity = await requireIdentity();
   const db = getAdminDb();
   const entries = Object.entries(CONFIG);
+  const snapshots = await Promise.all(entries.map(async ([module, config]) => [module, await db.collection(config.collection).where('companyId', '==', identity.companyId).limit(500).get()] as const));
   const totals: Record<string, number> = {};
   const activity = new Map<string, number>();
-  for (const [module, config] of entries) {
-    const snapshot = await db.collection(config.collection).where('companyId', '==', identity.companyId).limit(500).get();
+  for (const [module, snapshot] of snapshots) {
     totals[module] = snapshot.size;
     for (const doc of snapshot.docs) {
       const createdAt = doc.data().createdAt;
-      let date = '';
-      if (createdAt instanceof Timestamp) date = createdAt.toDate().toISOString().slice(0, 10);
-      else if (createdAt instanceof Date) date = createdAt.toISOString().slice(0, 10);
+      const date = createdAt instanceof Timestamp ? createdAt.toDate().toISOString().slice(0, 10) : createdAt instanceof Date ? createdAt.toISOString().slice(0, 10) : '';
       if (date) activity.set(date, (activity.get(date) ?? 0) + 1);
     }
   }
-  return {
-    totals,
-    activity: Array.from(activity.entries()).sort(([a], [b]) => a.localeCompare(b)).slice(-30).map(([date, count]) => ({ date, count })),
-  };
+  return { totals, activity: Array.from(activity.entries()).sort(([a], [b]) => a.localeCompare(b)).slice(-30).map(([date, count]) => ({ date, count })) };
 }
 
 export function modulePermissions(module: ModuleName): { read: Permission; write: Permission } {
