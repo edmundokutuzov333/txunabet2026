@@ -1,25 +1,20 @@
 import 'server-only';
 
+import crypto from 'node:crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/server/firebase/admin';
-import { requireIdentity, type EnterpriseIdentity } from '@/server/authorization';
+import { requireIdentity, type AuthenticatedIdentity } from '@/server/authorization';
 
 export type ConversationKind = 'company_general' | 'department' | 'direct' | 'group';
 
-function directConversationId(userA: string, userB: string): string {
-  return `direct_${[userA, userB].sort().join('_')}`;
-}
-
-export async function requireChatIdentity(): Promise<EnterpriseIdentity> {
-  return requireIdentity();
-}
+function directConversationId(userA: string, userB: string): string { return `direct_${[userA, userB].sort().join('_')}`; }
+export async function requireChatIdentity(): Promise<AuthenticatedIdentity> { return requireIdentity(); }
 
 export async function getOrCreateConversation(input: { type: ConversationKind; departmentId?: string; targetUserId?: string; name?: string; memberIds?: string[] }): Promise<{ id: string; data: Record<string, unknown> }> {
   const identity = await requireChatIdentity();
   const db = getAdminDb();
   let id = '';
   let members: string[] = [identity.uid];
-
   if (input.type === 'company_general') {
     id = `company_general_${identity.companyId}`;
   } else if (input.type === 'department') {
@@ -39,14 +34,13 @@ export async function getOrCreateConversation(input: { type: ConversationKind; d
     id = directConversationId(identity.uid, input.targetUserId);
   } else {
     const requested = input.memberIds ?? [];
-    const validMembers = await Promise.all(requested.slice(0, 100).map(async (uid) => {
+    const valid = await Promise.all(requested.slice(0, 100).map(async (uid) => {
       const member = await db.collection('companies').doc(identity.companyId).collection('members').doc(uid).get();
       return member.exists && member.data()?.status === 'active' ? uid : null;
     }));
-    members = Array.from(new Set([identity.uid, ...validMembers.filter((uid): uid is string => Boolean(uid))]));
+    members = Array.from(new Set([identity.uid, ...valid.filter((uid): uid is string => Boolean(uid))]));
     id = `group_${crypto.randomUUID()}`;
   }
-
   const ref = db.collection('conversations').doc(id);
   const snapshot = await ref.get();
   if (!snapshot.exists) {
@@ -54,13 +48,15 @@ export async function getOrCreateConversation(input: { type: ConversationKind; d
     await ref.set({ id, companyId: identity.companyId, type: input.type, name: input.name ?? null, departmentId: input.departmentId ?? null, createdBy: identity.uid, memberIds: members, createdAt: now, updatedAt: now, lastMessageAt: null, lastMessageId: null, pinnedMessageIds: [] });
   }
   const fresh = await ref.get();
-  return { id, data: fresh.data() as Record<string, unknown> };
+  const data = fresh.data();
+  if (!data) throw new Error('CONVERSATION_NOT_FOUND');
+  return { id, data: data as Record<string, unknown> };
 }
 
-function canAccessConversation(identity: EnterpriseIdentity, conversation: FirebaseFirestore.DocumentData): boolean {
+function canAccessConversation(identity: AuthenticatedIdentity, conversation: FirebaseFirestore.DocumentData): boolean {
   if (conversation.companyId !== identity.companyId) return false;
   if (conversation.type === 'company_general') return true;
-  if (conversation.type === 'department') return Boolean(conversation.departmentId && identity.departmentIds.includes(conversation.departmentId));
+  if (conversation.type === 'department') return Boolean(conversation.departmentId && identity.departmentIds.includes(String(conversation.departmentId)));
   return Array.isArray(conversation.memberIds) && conversation.memberIds.includes(identity.uid);
 }
 
@@ -69,15 +65,16 @@ export async function getConversationOrThrow(conversationId: string) {
   const identity = await requireChatIdentity();
   const ref = getAdminDb().collection('conversations').doc(conversationId);
   const snapshot = await ref.get();
-  if (!snapshot.exists || !canAccessConversation(identity, snapshot.data())) throw new Error('FORBIDDEN');
-  return { identity, ref, data: snapshot.data() as Record<string, unknown> };
+  const data = snapshot.data();
+  if (!snapshot.exists || !data || !canAccessConversation(identity, data)) throw new Error('FORBIDDEN');
+  return { identity, ref, data: data as Record<string, unknown> };
 }
 
 export async function createNotificationsForMessage(input: { conversationId: string; senderId: string; companyId: string; body: string; mentions?: string[]; replyToMessageId?: string | null; messageId?: string }): Promise<void> {
   const db = getAdminDb();
   const conversation = await db.collection('conversations').doc(input.conversationId).get();
-  if (!conversation.exists) return;
-  const data = conversation.data()!;
+  const data = conversation.data();
+  if (!conversation.exists || !data) return;
   let recipients: string[] = Array.isArray(data.memberIds) ? data.memberIds.filter((id: string) => id !== input.senderId) : [];
   if (data.type === 'company_general') {
     const members = await db.collection('companies').doc(input.companyId).collection('members').where('status', '==', 'active').get();
@@ -94,7 +91,7 @@ export async function createNotificationsForMessage(input: { conversationId: str
     const ref = db.collection('notifications').doc(uid).collection('items').doc();
     batch.set(ref, { id: ref.id, userId: uid, companyId: input.companyId, type: mentioned.has(uid) ? 'mention' : input.replyToMessageId ? 'reply' : 'new_message', conversationId: input.conversationId, messageId: input.messageId ?? null, actorId: input.senderId, bodyPreview: input.body.slice(0, 180), read: false, createdAt: now });
   }
-  await batch.commit();
+  if (recipients.length) await batch.commit();
 }
 
 export async function markConversationRead(conversationId: string, messageId: string): Promise<void> {
