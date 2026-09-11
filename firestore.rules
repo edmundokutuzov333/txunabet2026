@@ -1,0 +1,117 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =====================================================================
+    // HELPER FUNCTIONS: Reusable validation logic.
+    // =====================================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (request.auth.token.admin == true || request.auth.token.role == 'admin');
+    }
+
+    // Validates that the user is not attempting to change immutable fields.
+    function protectedFieldsUnchanged(immutableFields) {
+      return !immutableFields.exists(field, field in request.resource.data &&
+        request.resource.data[field] != resource.data[field]);
+    }
+
+    // =====================================================================
+    // COLLECTION: users
+    // Stores user profiles for platform employees.
+    // =====================================================================
+
+    match /users/{userId} {
+      // READ: Anyone signed in can read a user's profile.
+      allow read: if isSignedIn();
+
+      // LIST: Only admins can list all users.
+      allow list: if isAdmin();
+      
+      // CREATE: A user can create their own profile document.
+      allow create: if isOwner(userId);
+
+      // UPDATE: A user can only update their own profile, and cannot change their role or UID.
+      allow update: if isOwner(userId) && protectedFieldsUnchanged(['uid', 'role', 'email', 'createdAt']);
+      
+      // DELETE: Not allowed from client for data integrity.
+      allow delete: if false;
+
+      // Sub-collection: files (private files for a user)
+      match /files/{fileId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // =====================================================================
+    // COLLECTION: campaigns, game_operations, tasks
+    // Central collections for platform operations.
+    // =====================================================================
+
+    match /campaigns/{campaignId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /game_operations/{operationId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // Any employee can create/update tasks
+    }
+
+    // =====================================================================
+    // COLLECTION: transactions
+    // Immutable log of all financial transactions.
+    // =====================================================================
+    
+    match /transactions/{txId} {
+      // READ/LIST: A user can only access their own transactions.
+      allow read, list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      // WRITE: NO client-side writes allowed.
+      allow write: if false;
+    }
+
+    // =====================================================================
+    // COLLECTION: docs
+    // Stores metadata for all documents, regardless of owner.
+    // =====================================================================
+
+    match /docs/{docId} {
+      // READ/LIST: Admins or members of the document can access it.
+      allow get, list: if isAdmin() || (isSignedIn() && (request.auth.uid == resource.data.owner || request.auth.uid in resource.data.members));
+      
+      // CREATE: Any signed-in user can create a document.
+      allow create: if isSignedIn();
+      
+      // UPDATE: Admins or members can update metadata.
+      allow update: if isAdmin() || (isSignedIn() && (request.auth.uid == resource.data.owner || request.auth.uid in resource.data.members));
+      
+      // DELETE: Only the owner or an admin can delete a document.
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.owner == request.auth.uid);
+    }
+
+    // =====================================================================
+    // COLLECTION: system_configs
+    // Publicly readable configuration, writable only by admins.
+    // =====================================================================
+
+    match /system_configs/global {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

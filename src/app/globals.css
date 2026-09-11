@@ -1,0 +1,211 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 260 25% 15%; /* Roxo Escuro como base */
+    --foreground: 0 0% 98%; /* Branco para texto */
+    --card: 260 25% 18%;
+    --card-foreground: 0 0% 98%;
+    --popover: 260 25% 12%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 90 85% 55%; /* Verde Elétrico */
+    --primary-foreground: 260 25% 10%;
+    --secondary: 260 25% 25%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 260 25% 25%;
+    --muted-foreground: 260 5% 65%;
+    --accent: 90 85% 55%; /* Verde Elétrico como acento */
+    --accent-foreground: 260 25% 10%;
+    --destructive: 0 74% 56%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 260 25% 22%;
+    --input: 260 25% 20%;
+    --ring: 90 85% 60%;
+    --radius: 0.5rem;
+
+    /* Custom Tokens Based on the new Brand */
+    --primary-900: 260 25% 10%;
+    --primary-600: 260 25% 20%;
+    --accent-500: 90 85% 55%;
+    --success-500: 149 58% 40%;
+    --danger-500: 0 74% 56%;
+    --neutral-100: 260 25% 15%;
+    --neutral-700: 0 0% 90%;
+  }
+
+  .dark {
+    --background: 260 25% 15%; /* Roxo Escuro como base */
+    --foreground: 0 0% 98%; /* Branco para texto */
+    --card: 260 25% 18%;
+    --card-foreground: 0 0% 98%;
+    --popover: 260 25% 12%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 90 85% 55%; /* Verde Elétrico */
+    --primary-foreground: 260 25% 10%;
+    --secondary: 260 25% 25%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 260 25% 25%;
+    --muted-foreground: 260 5% 65%;
+    --accent: 90 85% 55%; /* Verde Elétrico como acento */
+    --accent-foreground: 260 25% 10%;
+    --destructive: 0 74% 56%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 260 25% 22%;
+    --input: 260 25% 20%;
+    --ring: 90 85% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  .dark body {
+    background: hsl(var(--background));
+  }
+
+  .light body {
+    background: hsl(var(--background));
+  }
+}
+
+@layer utilities {
+  .gradient-surface {
+    @apply backdrop-blur-md border shadow-2xl;
+  }
+
+  .dark .gradient-surface {
+     background: linear-gradient(135deg, hsla(var(--background), 0.7), hsla(var(--card), 0.5));
+     @apply border-white/10;
+  }
+
+  .light .gradient-surface {
+    background: linear-gradient(135deg, hsla(var(--background), 0.7), hsla(var(--card), 0.5));
+    border-color: hsl(var(--border));
+  }
+
+
+  .btn-primary-gradient {
+      background: hsl(var(--primary));
+      @apply transition-all duration-200 rounded-xl text-primary-foreground;
+  }
+  .btn-primary-gradient:hover {
+      filter: brightness(1.2);
+      box-shadow: 0 6px 20px hsla(var(--primary), 0.3);
+      transform: translateY(-2px);
+  }
+
+  /* Custom Scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: hsl(var(--primary));
+    border-radius: 10px;
+  }
+
+  .light .custom-scrollbar::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+  }
+
+
+  /* Department Colors */
+  .department-sportsbook { --dept-color: 145 63% 49%; } /* green */
+  .department-casino { --dept-color: 39 100% 50%; } /* orange */
+  .department-risk { --dept-color: 0 84% 60%; } /* red */
+  .department-marketing { --dept-color: 262 83% 58%; } /* violet */
+  .department-platform { --dept-color: 221 83% 53%; } /* blue */
+  .department-support { --dept-color: 188 95% 42%; } /* cyan */
+  .department-administration { --dept-color: 215 20% 65%; } /* gray */
+
+  .border-dept {
+    border-left: 4px solid hsl(var(--dept-color));
+  }
+  .text-dept {
+    color: hsl(var(--dept-color));
+  }
+  .bg-dept-light {
+    background-color: hsla(var(--dept-color), 0.1);
+  }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+
+@keyframes pulseSoft {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(124, 252, 0, 0.7); }
+    50% { box-shadow: 0 0 0 8px rgba(124, 252, 0, 0); }
+}
+
+@keyframes bounceIn {
+    0% { transform: scale(0.3); opacity: 0; }
+    50% { transform: scale(1.05); opacity: 0.9; }
+    70% { transform: scale(0.9); }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+.fade-in { animation: fadeIn 0.5s ease-in-out; }
+.slide-in-right { animation: slideInRight 0.5s ease-out; }
+.pulse-soft { animation: pulseSoft 2s infinite; }
+.bounce-in { animation: bounceIn 0.6s ease-out; }
+
+/* New Artistic Background */
+@keyframes move-background {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(100px, 100px);
+  }
+}
+
+.artistic-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background-color: hsl(var(--background));
+}
+
+.artistic-bg::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  right: -50%;
+  bottom: -50%;
+  width: 200%;
+  height: 200%;
+  background-image: 
+    linear-gradient(hsla(var(--primary), 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, hsla(var(--primary), 0.05) 1px, transparent 1px);
+  background-size: 50px 50px;
+  animation: move-background 20s linear infinite;
+}
+
+.artistic-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, transparent, hsl(var(--background)) 70%);
+}
+

@@ -1,0 +1,485 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "type": "object",
+      "description": "Represents a user profile within the Txuna Bet platform (e.g., admin, contentManager, riskAnalyst).",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Unique identifier for the UserProfile entity, matching Firebase Auth UID."
+        },
+        "email": {
+          "type": "string",
+          "description": "The user's corporate email address.",
+          "format": "email"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "The user's full name."
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "admin",
+            "contentManager",
+            "riskAnalyst",
+            "supportAgent"
+          ],
+          "description": "The user's role within Txuna Bet."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of when the user account was created."
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "displayName",
+        "role",
+        "createdAt"
+      ]
+    },
+    "Campaign": {
+      "title": "Campaign",
+      "type": "object",
+      "description": "Represents a marketing campaign.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the campaign."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the campaign."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "planning",
+            "active",
+            "completed",
+            "archived"
+          ],
+          "description": "Current status of the campaign."
+        },
+        "startDate": {
+          "type": "string",
+          "format": "date",
+          "description": "The effective date of the campaign."
+        },
+        "endDate": {
+          "type": "string",
+          "format": "date",
+          "description": "The expiration date of the campaign."
+        },
+        "budget": {
+          "type": "number",
+          "description": "The budget allocated for the campaign."
+        },
+        "spent": {
+          "type": "number",
+          "description": "The amount spent on the campaign."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "status",
+        "startDate",
+        "endDate",
+        "budget"
+      ]
+    },
+    "GameOperation": {
+      "title": "GameOperation",
+      "type": "object",
+      "description": "Represents a game or market operation.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the game operation."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the game or market."
+        },
+        "provider": {
+          "type": "string",
+          "description": "The game provider (e.g., Evolution, Pragmatic Play)."
+        },
+        "gameType": {
+          "type": "string",
+          "enum": [
+            "slot",
+            "live_casino",
+            "sports_market"
+          ],
+          "description": "Type of game or operation."
+        },
+        "riskLevel": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "description": "Assessed risk level."
+        },
+        "integrationStatus": {
+          "type": "string",
+          "enum": [
+            "prospecting",
+            "integration",
+            "testing",
+            "live",
+            "monitoring"
+          ],
+          "description": "Current status of the integration."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "provider",
+        "gameType",
+        "integrationStatus"
+      ]
+    },
+    "Task": {
+      "title": "Task",
+      "type": "object",
+      "description": "Represents a specific task to be completed.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the task."
+        },
+        "title": {
+          "type": "string",
+          "description": "The title of the task."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "backlog",
+            "todo",
+            "in-progress",
+            "done",
+            "blocked"
+          ],
+          "description": "Current status of the task."
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "urgent"
+          ],
+          "description": "Priority of the task."
+        },
+        "dueDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "The due date for the task."
+        },
+        "contextId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "ID of the parent Campaign or GameOperation."
+        },
+        "contextType": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "campaign",
+            "game_operation"
+          ],
+          "description": "Type of the parent context."
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "status",
+        "priority"
+      ]
+    },
+    "Bet": {
+      "title": "Bet",
+      "type": "object",
+      "description": "Represents a single bet placed by a player.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "playerId": {
+          "type": "string"
+        },
+        "market": {
+          "type": "string"
+        },
+        "stake": {
+          "type": "number"
+        },
+        "odds": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "won",
+            "lost",
+            "cashed_out"
+          ]
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "playerId",
+        "market",
+        "stake",
+        "odds",
+        "status",
+        "timestamp"
+      ]
+    },
+    "Affiliate": {
+      "title": "Affiliate",
+      "type": "object",
+      "description": "Represents a marketing affiliate partner.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "trackingCode": {
+          "type": "string"
+        },
+        "commissionRate": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "trackingCode",
+        "commissionRate"
+      ]
+    },
+    "File": {
+      "title": "File",
+      "type": "object",
+      "description": "Represents a file, its metadata, and access controls.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The name or title of the document."
+        },
+        "owner": {
+          "type": "string",
+          "description": "The UID of the user who owns the document."
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "The ID of the workspace this document belongs to."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "doc",
+            "sheet",
+            "ppt",
+            "board",
+            "pdf",
+            "image"
+          ],
+          "description": "The type of the document."
+        },
+        "storagePath": {
+          "type": "string",
+          "description": "The full path to the file in Firebase Storage."
+        },
+        "previewPath": {
+          "type": "string",
+          "description": "The path to a generated thumbnail or preview in Storage."
+        },
+        "size": {
+          "type": "number",
+          "description": "File size in bytes."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "An array of tags for categorization."
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "An array of UIDs of users who have access to the document."
+        },
+        "sharedWith": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "uid": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "editor",
+                  "viewer"
+                ]
+              }
+            }
+          },
+          "description": "List of users and their roles with whom the document is shared."
+        },
+        "published": {
+          "type": "boolean",
+          "description": "Indicates if the document is published or a draft."
+        },
+        "version": {
+          "type": "number",
+          "description": "The current version number of the document."
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "v": {
+                "type": "number"
+              },
+              "path": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "History of previous file versions."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastOpenedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "pages": {
+              "type": "number"
+            },
+            "mime": {
+              "type": "string"
+            }
+          },
+          "description": "Additional file-specific metadata."
+        }
+      },
+      "required": [
+        "title",
+        "owner",
+        "members",
+        "type",
+        "storagePath",
+        "version",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "schema": {
+            "$ref": "#/entities/UserProfile"
+          },
+          "description": "Stores user profiles for platform employees."
+        }
+      },
+      {
+        "path": "/campaigns/{campaignId}",
+        "definition": {
+          "schema": {
+            "$ref": "#/entities/Campaign"
+          },
+          "description": "Central collection for all marketing campaigns."
+        }
+      },
+      {
+        "path": "/game_operations/{operationId}",
+        "definition": {
+          "schema": {
+            "$ref": "#/entities/GameOperation"
+          },
+          "description": "Collection for game and market operations."
+        }
+      },
+      {
+        "path": "/tasks/{taskId}",
+        "definition": {
+          "schema": {
+            "$ref": "#/entities/Task"
+          },
+          "description": "Collection for all tasks, linked to campaigns or operations."
+        }
+      },
+      {
+        "path": "/docs/{docId}",
+        "definition": {
+          "schema": {
+            "$ref": "#/entities/File"
+          },
+          "description": "Stores metadata for all documents, regardless of owner."
+        }
+      },
+      {
+        "path": "/users/{userId}/files/{fileId}",
+        "definition": {
+          "schema": {
+            "$ref": "#/entities/File"
+          },
+          "description": "Stores metadata for a user's private files."
+        }
+      }
+    ]
+  }
+}
