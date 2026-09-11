@@ -7,14 +7,11 @@ service firebase.storage {
     }
 
     function isCompanyMember(companyId) {
-      return signedIn()
-        && firestore.exists(/databases/(default)/documents/companies/$(companyId)/members/$(request.auth.uid))
-        && firestore.get(/databases/(default)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.status == 'active';
+      return signedIn() && request.auth.token.companyId == companyId;
     }
 
     function isCompanyAdmin(companyId) {
-      return isCompanyMember(companyId)
-        && firestore.get(/databases/(default)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role in ['owner', 'admin'];
+      return isCompanyMember(companyId) && request.auth.token.role in ['owner', 'admin'];
     }
 
     function validUpload() {
@@ -48,6 +45,7 @@ service firebase.storage {
     }
 
     match /companies/{companyId}/documents/{documentId}/{allPaths=**} {
+      // Document-level ACL is enforced server-side before signed URLs are issued.
       allow read, write: if isCompanyMember(companyId) && validUpload();
       allow delete: if isCompanyMember(companyId);
     }
