@@ -1,12 +1,19 @@
+import type { Timestamp } from 'firebase/firestore';
+
 export type MessageLike = {
   id: string;
   clientMessageId?: string | null;
-  createdAt: number | string | null;
+  createdAt: number | string | Timestamp | null;
 };
 
 function timestamp(value: MessageLike['createdAt']): number {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') return Date.parse(value) || 0;
+  if (value && typeof value === 'object') {
+    const candidate = value as Timestamp & { toMillis?: () => number; seconds?: number; nanoseconds?: number };
+    if (typeof candidate.toMillis === 'function') return candidate.toMillis();
+    if (typeof candidate.seconds === 'number') return candidate.seconds * 1000 + Math.floor((candidate.nanoseconds ?? 0) / 1_000_000);
+  }
   return 0;
 }
 
