@@ -23,6 +23,22 @@ service firebase.storage {
           || (firestore.get(/databases/(default)/documents/conversations/$(conversationId)).data.type in ['direct', 'group']
             && request.auth.uid in firestore.get(/databases/(default)/documents/conversations/$(conversationId)).data.memberIds));
     }
+    function hasDocumentAccess(companyId, documentId) {
+      return isCompanyMember(companyId)
+        && firestore.exists(/databases/(default)/documents/documents/$(documentId))
+        && firestore.get(/databases/(default)/documents/documents/$(documentId)).data.companyId == companyId
+        && firestore.get(/databases/(default)/documents/documents/$(documentId)).data.status == 'active'
+        && (firestore.get(/databases/(default)/documents/documents/$(documentId)).data.sharedCompany == true
+          || firestore.get(/databases/(default)/documents/documents/$(documentId)).data.ownerId == request.auth.uid
+          || request.auth.uid in firestore.get(/databases/(default)/documents/documents/$(documentId)).data.viewerIds
+          || request.auth.uid in firestore.get(/databases/(default)/documents/documents/$(documentId)).data.editorIds
+          || firestore.get(/databases/(default)/documents/documents/$(documentId)).data.sharedDepartmentIds.hasAny(firestore.get(/databases/(default)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.departmentIds));
+    }
+    function hasDocumentEditAccess(companyId, documentId) {
+      return hasDocumentAccess(companyId, documentId)
+        && (firestore.get(/databases/(default)/documents/documents/$(documentId)).data.ownerId == request.auth.uid
+          || request.auth.uid in firestore.get(/databases/(default)/documents/documents/$(documentId)).data.editorIds);
+    }
     function validUpload() { return request.resource != null && request.resource.size > 0 && request.resource.size <= 100 * 1024 * 1024; }
 
     match /companies/{companyId}/users/{userId}/avatars/{fileName} {
@@ -41,9 +57,9 @@ service firebase.storage {
       allow delete: if hasConversationAccess(companyId, conversationId) && (request.auth.uid == userId || isCompanyAdmin(companyId));
     }
     match /companies/{companyId}/documents/{documentId}/{allPaths=**} {
-      allow read: if isCompanyMember(companyId);
-      allow write: if isCompanyMember(companyId) && validUpload();
-      allow delete: if isCompanyMember(companyId);
+      allow read: if hasDocumentAccess(companyId, documentId);
+      allow write: if hasDocumentEditAccess(companyId, documentId) && validUpload() && request.resource.contentType.matches('image/.*');
+      allow delete: if hasDocumentEditAccess(companyId, documentId) || isCompanyAdmin(companyId);
     }
   }
 }
