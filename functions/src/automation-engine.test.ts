@@ -39,7 +39,9 @@ describe('automation cron engine', () => {
   test('retry backoff is bounded and deterministic', () => {
     expect(retryDelayMs(1)).toBe(30_000);
     expect(retryDelayMs(2)).toBe(60_000);
-    expect(retryDelayMs(5)).toBe(15 * 60_000);
+    expect(retryDelayMs(4)).toBe(240_000);
+    expect(retryDelayMs(5)).toBe(480_000);
+    expect(retryDelayMs(6)).toBe(15 * 60_000);
     expect(retryDelayMs(100)).toBe(15 * 60_000);
   });
 });
