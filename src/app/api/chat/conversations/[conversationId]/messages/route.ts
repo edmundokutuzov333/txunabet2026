@@ -3,6 +3,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { getAdminDb } from '@/server/firebase/admin';
 import { createNotificationsForMessage, getConversationOrThrow } from '@/server/services/chat';
+import { logError, logInfo } from '@/server/observability/logger';
+import { recordMetric } from '@/server/observability/metrics';
 
 const createMessageSchema = z.object({
   body: z.string().trim().min(1).max(20_000),
@@ -14,7 +16,7 @@ const createMessageSchema = z.object({
 });
 
 function searchTokens(value: string) {
-  return Array.from(new Set(value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9@_-]+/g, ' ').split(/\s+/).filter((token) => token.length >= 2).slice(0, 80)));
+  return Array.from(new Set(value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9@_-]+/g, ' ').split(/\s+/).filter((token) => token.length >= 2).slice(0, 40)));
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ conversationId: string }> }) {
@@ -32,26 +34,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ conv
     const snapshot = await messagesQuery.get();
     return NextResponse.json({ messages: snapshot.docs.map((doc) => doc.data()).reverse(), hasMore: snapshot.size === limit });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'FORBIDDEN';
-    return NextResponse.json({ error: message }, { status: message === 'UNAUTHENTICATED' ? 401 : 403 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'FORBIDDEN' }, { status: 403 });
   }
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ conversationId: string }> }) {
+  const started = performance.now();
   try {
     const { conversationId } = await params;
-    const { identity, ref } = await getConversationOrThrow(conversationId);
+    const { identity, ref, data: conversation } = await getConversationOrThrow(conversationId);
     const input = createMessageSchema.parse(await request.json());
     const existing = await ref.collection('messages').where('clientMessageId', '==', input.clientMessageId).limit(1).get();
     if (!existing.empty) return NextResponse.json({ message: existing.docs[0].data(), duplicate: true });
-
-    const validMentionIds = new Set<string>();
-    for (const uid of input.mentions) {
-      if (uid === identity.uid) continue;
-      const member = await getAdminDb().collection('companies').doc(identity.companyId).collection('members').doc(uid).get();
-      if (member.exists && member.data()?.status === 'active') validMentionIds.add(uid);
-    }
-    input.mentions = Array.from(validMentionIds);
+    input.mentions = input.mentions.filter((uid) => uid !== identity.uid);
 
     for (const attachment of input.attachments) {
       if (!attachment.storagePath.startsWith(`companies/${identity.companyId}/conversations/${conversationId}/attachments/${identity.uid}/`)) return NextResponse.json({ error: 'ATTACHMENT_PATH_NOT_ALLOWED' }, { status: 400 });
@@ -61,9 +56,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ con
       if (!replyTarget.exists) return NextResponse.json({ error: 'REPLY_TARGET_NOT_FOUND' }, { status: 400 });
     }
 
-    const attachmentTokens = input.attachments.flatMap((attachment) => searchTokens(attachment.name));
     const messageRef = ref.collection('messages').doc();
     const now = FieldValue.serverTimestamp();
+    const attachmentTokens = input.attachments.flatMap((attachment) => searchTokens(attachment.name));
     const message = {
       id: messageRef.id,
       conversationId,
@@ -80,7 +75,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ con
       editedAt: null,
       deletedAt: null,
       clientMessageId: input.clientMessageId,
-      searchTokens: Array.from(new Set([...searchTokens(input.body), ...attachmentTokens])),
+      searchTokens: Array.from(new Set([...searchTokens(input.body), ...attachmentTokens])).slice(0, 60),
     };
 
     const batch = getAdminDb().batch();
@@ -88,9 +83,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ con
     batch.set(ref, { updatedAt: now, lastMessageAt: now, lastMessageId: messageRef.id }, { merge: true });
     await batch.commit();
     await createNotificationsForMessage({ conversationId, senderId: identity.uid, companyId: identity.companyId, body: input.body, mentions: input.mentions, replyToMessageId: input.replyToMessageId, messageId: messageRef.id });
-    return NextResponse.json({ message: { ...message, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }, { status: 201 });
+    const durationMs = Math.round(performance.now() - started);
+    recordMetric({ name: 'chat_delivery', value: durationMs, success: true, userId: identity.uid, companyId: identity.companyId });
+    logInfo({ event: 'chat.message.created', userId: identity.uid, companyId: identity.companyId, durationMs, metadata: { conversationType: String(conversation.type), hasAttachments: input.attachments.length > 0 } });
+    return NextResponse.json({ message: { ...message, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, conversation }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'INVALID_REQUEST';
-    return NextResponse.json({ error: message }, { status: message === 'FORBIDDEN' ? 403 : message === 'UNAUTHENTICATED' ? 401 : 400 });
+    recordMetric({ name: 'chat_delivery', value: Math.round(performance.now() - started), success: false });
+    logError({ event: 'chat.message.failed', metadata: { error: message } });
+    return NextResponse.json({ error: message }, { status: message === 'FORBIDDEN' ? 403 : 400 });
   }
 }
