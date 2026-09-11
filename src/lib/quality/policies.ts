@@ -11,6 +11,8 @@ export type UserPolicyContext = {
   departmentIds: string[];
 };
 
+export type NotificationKind = 'new_message' | 'mention' | 'reply' | 'document_shared' | 'document_comment' | 'task_assigned' | 'meeting_invite';
+
 export function canAccessConversation(user: UserPolicyContext, conversation: ConversationPolicy): boolean {
   if (user.companyId !== conversation.companyId) return false;
   if (conversation.type === 'company_general') return true;
@@ -44,4 +46,25 @@ export function validateAIContext(context: { companyId: string; sourceCompanyId?
 
 export function uniqueReactionUsers(users: string[]): string[] {
   return Array.from(new Set(users.filter(Boolean)));
+}
+
+export function nextDocumentVersion(currentVersion: number, hasContentChange: boolean): number {
+  const safeCurrent = Number.isInteger(currentVersion) && currentVersion >= 0 ? currentVersion : 0;
+  return hasContentChange ? safeCurrent + 1 : safeCurrent;
+}
+
+export function classifyNotification(params: { senderId: string; recipientId: string; mentioned: boolean; replyToMessageId?: string | null }): NotificationKind {
+  if (params.senderId === params.recipientId) return 'new_message';
+  if (params.mentioned) return 'mention';
+  if (params.replyToMessageId) return 'reply';
+  return 'new_message';
+}
+
+export function extractMentionIds(mentions: string[], allowedUserIds: readonly string[]): string[] {
+  const allowed = new Set(allowedUserIds);
+  return Array.from(new Set(mentions.filter((id) => id !== '@channel' && allowed.has(id))));
+}
+
+export function hasChannelMention(mentions: string[]): boolean {
+  return mentions.some((mention) => mention.toLowerCase() === '@channel');
 }
