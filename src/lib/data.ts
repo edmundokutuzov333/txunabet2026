@@ -74,7 +74,7 @@ export type LegacyCampaign = {
   risks: string;
   startDate: string;
   endDate: string;
-  department?: string;
+  department: string;
   kpis: { signups: number; cpa: number; ggr?: number };
 };
 
@@ -108,7 +108,7 @@ export type LegacyWorkflow = { id: string; name: string; department: string; ste
 export type LegacyKnowledgeArticle = { id: string; title: string; category: string; views: number; tags: string[] };
 export type LegacyGameOperation = { id: string; name: string; provider: string; gameType: string; riskLevel: 'low' | 'medium' | 'high' | string; stage: string };
 export type LegacyIntegration = { id: string; name: string; type: string; status: string; icon?: string; connected: boolean };
-export type LegacyReport = { id: string; name: string; title?: string; summary?: string; type?: string; department?: string; description: string; status: string; createdAt: string };
+export type LegacyReport = { id: string; name: string; title: string; summary: string; type: string; department: string; description: string; status: string; createdAt: string };
 export type LegacyLooseRecord = Record<string, any>;
 
 export type Workspace = {
