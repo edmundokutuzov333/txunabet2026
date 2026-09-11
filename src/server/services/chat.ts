@@ -14,16 +14,9 @@ export async function requireChatIdentity(): Promise<EnterpriseIdentity> {
   return requireIdentity();
 }
 
-export async function getOrCreateConversation(input: {
-  type: ConversationKind;
-  departmentId?: string;
-  targetUserId?: string;
-  name?: string;
-  memberIds?: string[];
-}): Promise<{ id: string; data: Record<string, unknown> }> {
+export async function getOrCreateConversation(input: { type: ConversationKind; departmentId?: string; targetUserId?: string; name?: string; memberIds?: string[] }): Promise<{ id: string; data: Record<string, unknown> }> {
   const identity = await requireChatIdentity();
   const db = getAdminDb();
-
   let id = '';
   let members: string[] = [identity.uid];
 
@@ -45,7 +38,12 @@ export async function getOrCreateConversation(input: {
     members = [identity.uid, input.targetUserId].sort();
     id = directConversationId(identity.uid, input.targetUserId);
   } else {
-    members = Array.from(new Set([identity.uid, ...(input.memberIds ?? [])]));
+    const requested = input.memberIds ?? [];
+    const validMembers = await Promise.all(requested.slice(0, 100).map(async (uid) => {
+      const member = await db.collection('companies').doc(identity.companyId).collection('members').doc(uid).get();
+      return member.exists && member.data()?.status === 'active' ? uid : null;
+    }));
+    members = Array.from(new Set([identity.uid, ...validMembers.filter((uid): uid is string => Boolean(uid))]));
     id = `group_${crypto.randomUUID()}`;
   }
 
@@ -53,19 +51,7 @@ export async function getOrCreateConversation(input: {
   const snapshot = await ref.get();
   if (!snapshot.exists) {
     const now = FieldValue.serverTimestamp();
-    await ref.set({
-      id,
-      companyId: identity.companyId,
-      type: input.type,
-      name: input.name ?? null,
-      departmentId: input.departmentId ?? null,
-      createdBy: identity.uid,
-      memberIds: members,
-      createdAt: now,
-      updatedAt: now,
-      lastMessageAt: null,
-      lastMessageId: null,
-    });
+    await ref.set({ id, companyId: identity.companyId, type: input.type, name: input.name ?? null, departmentId: input.departmentId ?? null, createdBy: identity.uid, memberIds: members, createdAt: now, updatedAt: now, lastMessageAt: null, lastMessageId: null, pinnedMessageIds: [] });
   }
   const fresh = await ref.get();
   return { id, data: fresh.data() as Record<string, unknown> };
@@ -79,6 +65,7 @@ function canAccessConversation(identity: EnterpriseIdentity, conversation: Fireb
 }
 
 export async function getConversationOrThrow(conversationId: string) {
+  if (!conversationId || conversationId.length > 180) throw new Error('INVALID_CONVERSATION');
   const identity = await requireChatIdentity();
   const ref = getAdminDb().collection('conversations').doc(conversationId);
   const snapshot = await ref.get();
@@ -86,20 +73,12 @@ export async function getConversationOrThrow(conversationId: string) {
   return { identity, ref, data: snapshot.data() as Record<string, unknown> };
 }
 
-export async function createNotificationsForMessage(input: {
-  conversationId: string;
-  senderId: string;
-  companyId: string;
-  body: string;
-  mentions?: string[];
-  replyToMessageId?: string | null;
-}): Promise<void> {
+export async function createNotificationsForMessage(input: { conversationId: string; senderId: string; companyId: string; body: string; mentions?: string[]; replyToMessageId?: string | null; messageId?: string }): Promise<void> {
   const db = getAdminDb();
   const conversation = await db.collection('conversations').doc(input.conversationId).get();
   if (!conversation.exists) return;
   const data = conversation.data()!;
   let recipients: string[] = Array.isArray(data.memberIds) ? data.memberIds.filter((id: string) => id !== input.senderId) : [];
-
   if (data.type === 'company_general') {
     const members = await db.collection('companies').doc(input.companyId).collection('members').where('status', '==', 'active').get();
     recipients = members.docs.map((doc) => doc.id).filter((id) => id !== input.senderId);
@@ -108,25 +87,12 @@ export async function createNotificationsForMessage(input: {
     const members = await db.collection('departments').doc(String(data.departmentId)).collection('members').where('status', '==', 'active').get();
     recipients = members.docs.map((doc) => doc.id).filter((id) => id !== input.senderId);
   }
-
-  const mentionRecipients = (input.mentions ?? []).filter((id) => id !== input.senderId);
+  const mentioned = new Set(input.mentions ?? []);
   const batch = db.batch();
   const now = FieldValue.serverTimestamp();
-
   for (const uid of new Set(recipients)) {
     const ref = db.collection('notifications').doc(uid).collection('items').doc();
-    batch.set(ref, {
-      id: ref.id,
-      userId: uid,
-      companyId: input.companyId,
-      type: mentionRecipients.includes(uid) ? 'mention' : input.replyToMessageId ? 'reply' : 'new_message',
-      conversationId: input.conversationId,
-      messageId: null,
-      actorId: input.senderId,
-      bodyPreview: input.body.slice(0, 180),
-      read: false,
-      createdAt: now,
-    });
+    batch.set(ref, { id: ref.id, userId: uid, companyId: input.companyId, type: mentioned.has(uid) ? 'mention' : input.replyToMessageId ? 'reply' : 'new_message', conversationId: input.conversationId, messageId: input.messageId ?? null, actorId: input.senderId, bodyPreview: input.body.slice(0, 180), read: false, createdAt: now });
   }
   await batch.commit();
 }
@@ -135,10 +101,5 @@ export async function markConversationRead(conversationId: string, messageId: st
   const { identity, ref } = await getConversationOrThrow(conversationId);
   const message = await ref.collection('messages').doc(messageId).get();
   if (!message.exists) throw new Error('MESSAGE_NOT_FOUND');
-  await ref.collection('reads').doc(identity.uid).set({
-    userId: identity.uid,
-    conversationId,
-    lastReadMessageId: messageId,
-    lastReadAt: FieldValue.serverTimestamp(),
-  }, { merge: true });
+  await ref.collection('reads').doc(identity.uid).set({ userId: identity.uid, conversationId, lastReadMessageId: messageId, lastReadAt: FieldValue.serverTimestamp() }, { merge: true });
 }
