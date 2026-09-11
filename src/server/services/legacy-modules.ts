@@ -47,7 +47,7 @@ function normalizePrimitive(value: unknown): unknown {
   return undefined;
 }
 
-function sanitizePayload(payload: unknown): Record<string, unknown> {
+export function sanitizeModulePayload(payload: unknown): Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('INVALID_PAYLOAD');
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(payload as Record<string, unknown>).slice(0, MAX_KEYS)) {
@@ -75,15 +75,36 @@ function titleFor(config: ModuleConfig, data: Record<string, unknown>): string {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, 240) : '';
 }
 
+function isPrivileged(identity: AuthenticatedIdentity): boolean {
+  return identity.role === 'owner' || identity.role === 'admin';
+}
+
+function hasCloudAccess(identity: AuthenticatedIdentity, data: DocumentData | undefined): boolean {
+  if (!data || data.companyId !== identity.companyId) return false;
+  if (isPrivileged(identity)) return true;
+  if (data.ownerId === identity.uid || data.createdBy === identity.uid) return true;
+  return Array.isArray(data.sharedWith) && data.sharedWith.includes(identity.uid);
+}
+
 async function ensureCompanyAccess(identity: AuthenticatedIdentity, data: DocumentData | undefined): Promise<void> {
   if (!data || data.companyId !== identity.companyId) throw new Error('FORBIDDEN');
+}
+
+async function ensureRecordAccess(module: ModuleName, identity: AuthenticatedIdentity, data: DocumentData | undefined): Promise<void> {
+  if (module === 'cloud') {
+    if (!hasCloudAccess(identity, data)) throw new Error('FORBIDDEN');
+    return;
+  }
+  await ensureCompanyAccess(identity, data);
 }
 
 export async function listModuleRecords(module: ModuleName, options?: { q?: string; limit?: number }): Promise<Record<string, unknown>[]> {
   const config = configFor(module);
   const identity = await requirePermission(config.read);
   const snapshot = await getAdminDb().collection(config.collection).where('companyId', '==', identity.companyId).limit(Math.min(options?.limit ?? MAX_RECORDS, MAX_RECORDS)).get();
-  const records = snapshot.docs.map(publicRecord).sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
+  let records = snapshot.docs.map(publicRecord);
+  if (module === 'cloud' && !isPrivileged(identity)) records = records.filter((record) => record.ownerId === identity.uid || record.createdBy === identity.uid || (Array.isArray(record.sharedWith) && record.sharedWith.includes(identity.uid)));
+  records.sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
   const q = options?.q?.trim().toLowerCase();
   return q ? records.filter((record) => JSON.stringify(record).toLowerCase().includes(q)) : records;
 }
@@ -94,19 +115,19 @@ export async function getModuleRecord(module: ModuleName, id: string): Promise<R
   if (!SAFE_KEY.test(id)) throw new Error('INVALID_ID');
   const snapshot = await getAdminDb().collection(config.collection).doc(id).get();
   if (!snapshot.exists) throw new Error('NOT_FOUND');
-  await ensureCompanyAccess(identity, snapshot.data());
+  await ensureRecordAccess(module, identity, snapshot.data());
   return publicRecord(snapshot);
 }
 
 export async function createModuleRecord(module: ModuleName, rawData: unknown): Promise<Record<string, unknown>> {
   const config = configFor(module);
   const identity = await requirePermission(config.write);
-  const data = sanitizePayload(rawData);
+  const data = sanitizeModulePayload(rawData);
   const title = titleFor(config, data);
   if (config.titleField && !title) throw new Error('TITLE_REQUIRED');
   const ref = getAdminDb().collection(config.collection).doc();
   const now = FieldValue.serverTimestamp();
-  await ref.create({ ...data, id: ref.id, companyId: identity.companyId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: now, updatedAt: now, version: 1, searchTitle: title.toLowerCase() });
+  await ref.create({ ...data, id: ref.id, companyId: identity.companyId, ownerId: module === 'cloud' ? identity.uid : data.ownerId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: now, updatedAt: now, version: 1, searchTitle: title.toLowerCase() });
   await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'create', resourceType: module, resourceId: ref.id, metadata: { title } });
   return getModuleRecord(module, ref.id);
 }
@@ -118,8 +139,8 @@ export async function updateModuleRecord(module: ModuleName, id: string, rawData
   const ref = getAdminDb().collection(config.collection).doc(id);
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('NOT_FOUND');
-  await ensureCompanyAccess(identity, snapshot.data());
-  const data = sanitizePayload(rawData);
+  await ensureRecordAccess(module, identity, snapshot.data());
+  const data = sanitizeModulePayload(rawData);
   const merged = { ...(snapshot.data() ?? {}), ...data } as Record<string, unknown>;
   const title = titleFor(config, merged);
   if (config.titleField && !title) throw new Error('TITLE_REQUIRED');
@@ -136,7 +157,7 @@ export async function deleteModuleRecord(module: ModuleName, id: string): Promis
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('NOT_FOUND');
   const data = snapshot.data();
-  await ensureCompanyAccess(identity, data);
+  await ensureRecordAccess(module, identity, data);
   if (module === 'cloud' && typeof data?.storagePath === 'string') await getAdminStorage().bucket().file(data.storagePath).delete({ ignoreNotFound: true });
   await ref.delete();
   await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'delete', resourceType: module, resourceId: id });
@@ -150,11 +171,11 @@ export async function getModuleAnalytics(): Promise<{ totals: Record<string, num
   const totals: Record<string, number> = {};
   const activity = new Map<string, number>();
   for (const [module, snapshot] of snapshots) {
-    totals[module] = snapshot.size;
+    totals[module] = snapshot.docs.filter((doc) => module !== 'cloud' || isPrivileged(identity) || doc.data().ownerId === identity.uid || doc.data().createdBy === identity.uid || (Array.isArray(doc.data().sharedWith) && doc.data().sharedWith.includes(identity.uid))).length;
     for (const doc of snapshot.docs) {
       const createdAt = doc.data().createdAt;
       const date = createdAt instanceof Timestamp ? createdAt.toDate().toISOString().slice(0, 10) : createdAt instanceof Date ? createdAt.toISOString().slice(0, 10) : '';
-      if (date) activity.set(date, (activity.get(date) ?? 0) + 1);
+      if (date && (module !== 'cloud' || isPrivileged(identity) || doc.data().ownerId === identity.uid || doc.data().createdBy === identity.uid || (Array.isArray(doc.data().sharedWith) && doc.data().sharedWith.includes(identity.uid)))) activity.set(date, (activity.get(date) ?? 0) + 1);
     }
   }
   return { totals, activity: Array.from(activity.entries()).sort(([a], [b]) => a.localeCompare(b)).slice(-30).map(([date, count]) => ({ date, count })) };
