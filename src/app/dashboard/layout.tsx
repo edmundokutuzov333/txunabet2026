@@ -1,19 +1,21 @@
+import { redirect } from 'next/navigation';
 import AppSidebar from '@/components/layout/app-sidebar';
 import Header from '@/components/layout/header';
+import { requireIdentity } from '@/server/authorization';
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  try {
+    await requireIdentity();
+  } catch {
+    redirect('/login');
+  }
+
   return (
     <div className="flex h-screen w-full">
       <AppSidebar />
       <main className="flex-1 flex flex-col overflow-hidden">
         <Header />
-        <div className="flex-grow overflow-y-auto custom-scrollbar">
-          {children}
-        </div>
+        <div className="flex-grow overflow-y-auto custom-scrollbar">{children}</div>
       </main>
     </div>
   );
