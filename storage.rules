@@ -41,7 +41,7 @@ service firebase.storage {
       allow delete: if hasConversationAccess(companyId, conversationId) && (request.auth.uid == userId || isCompanyAdmin(companyId));
     }
     match /companies/{companyId}/documents/{documentId}/{allPaths=**} {
-      allow read: if isCompanyMember(companyId) && validUpload();
+      allow read: if isCompanyMember(companyId);
       allow write: if isCompanyMember(companyId) && validUpload();
       allow delete: if isCompanyMember(companyId);
     }
