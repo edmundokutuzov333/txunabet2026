@@ -2,9 +2,9 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
+  roots: ['<rootDir>/src'],
+  testMatch: ['**/*.test.ts'],
   moduleNameMapper: {
-    // Force module imports to be resolved with the .js extension
-    // This is required for ES Modules support in Jest
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
 };
