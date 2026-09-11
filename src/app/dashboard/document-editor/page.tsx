@@ -1,6 +1,6 @@
-import { DocumentWorkspaceV2 } from '@/features/documents/document-workspace-v2';
+import { DocumentWorkspaceV3 } from '@/features/documents/document-workspace-v3';
 
 export default async function DocumentEditorPage({ searchParams }: { searchParams: Promise<{ id?: string }> }) {
   const params = await searchParams;
-  return <DocumentWorkspaceV2 initialDocumentId={params.id} />;
+  return <DocumentWorkspaceV3 initialDocumentId={params.id} />;
 }
