@@ -1,12 +1,10 @@
 'use client';
 import { Activity, ListTodo, Video, Users, Shield, BarChart, Target, Bot, Loader2, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getTasksForUser, users as legacyUsers, feedItems, meetings as legacyMeetings, getCurrentUser } from '@/lib/data';
+import { getTasksForUser, feedItems, meetings as legacyMeetings } from '@/lib/data';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
-import { PlaceHolderImages } from '@/lib/placeholder-images';
-import { Button } from '@/components/ui/button';
 import { getDailyBriefing } from '@/ai/flows/get-daily-briefing';
 import { useEffect, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -14,6 +12,7 @@ import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, A
 import { useUser } from '@/firebase';
 import { ROLES } from '@/config/roles';
 import { useEnterpriseIdentity } from '@/features/auth/use-enterprise-identity';
+import type { LegacyMeeting } from '@/lib/data';
 
 type DashboardUser = { uid: string; displayName: string; email: string | null; role: string; companyId: string };
 
@@ -62,7 +61,7 @@ const DailyBriefing = ({ user }: { user: DashboardUser }) => {
 };
 
 const TaskPreviewCard = ({ task }: { task: ReturnType<typeof getTasksForUser>[0] }) => <Link href="/dashboard/tasks"><div className="p-4 rounded-xl bg-card/5 hover:bg-card/10 transition-colors cursor-pointer"><div className="flex justify-between items-start mb-2"><h3 className="font-semibold text-foreground text-sm">{task.title}</h3><Badge variant="outline" className="text-xs">{task.priority}</Badge></div><p className="text-muted-foreground text-sm mb-3 line-clamp-2">{task.description}</p><div className="flex items-center justify-between text-xs text-muted-foreground"><span>Vence: {new Date(task.dueDate).toLocaleDateString('pt-PT')}</span><span className="capitalize">{task.status === 'completed' || task.status === 'done' ? 'Concluído' : task.status === 'in-progress' ? 'Em Progresso' : 'Pendente'}</span></div></div></Link>;
-const MeetingPreviewCard = ({ meeting }: { meeting: ReturnType<typeof legacyMeetings>[0] }) => <Link href="/dashboard/meetings"><div className="p-4 rounded-xl bg-card/5 hover:bg-card/10 transition-colors cursor-pointer"><div className="flex justify-between items-start mb-2"><h3 className="font-semibold text-foreground text-sm">{meeting.title}</h3><Button size="icon" variant="ghost" className="h-8 w-8 bg-green-500/20 text-green-400 hover:bg-green-500/30" aria-label="Abrir chamada"><Video className="h-4 w-4" /></Button></div><p className="text-muted-foreground text-sm mb-3 line-clamp-2">{meeting.description}</p><div className="flex items-center justify-between text-xs text-muted-foreground"><span>{new Date(`${meeting.date}T${meeting.time}`).toLocaleString('pt-PT')}</span><span>{meeting.duration} min</span></div></div></Link>;
+const MeetingPreviewCard = ({ meeting }: { meeting: LegacyMeeting }) => <Link href="/dashboard/meetings"><div className="p-4 rounded-xl bg-card/5 hover:bg-card/10 transition-colors cursor-pointer"><div className="flex justify-between items-start mb-2"><h3 className="font-semibold text-foreground text-sm">{meeting.title}</h3><Button size="icon" variant="ghost" className="h-8 w-8 bg-green-500/20 text-green-400 hover:bg-green-500/30" aria-label="Abrir chamada"><Video className="h-4 w-4" /></Button></div><p className="text-muted-foreground text-sm mb-3 line-clamp-2">{meeting.description}</p><div className="flex items-center justify-between text-xs text-muted-foreground"><span>{new Date(`${meeting.date}T${meeting.time}`).toLocaleString('pt-PT')}</span><span>{meeting.duration} min</span></div></div></Link>;
 
 const PulseFeedSnippet = () => <Card className="gradient-surface border-0 rounded-2xl"><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-xl font-bold">Pulse da Empresa</CardTitle><Link href="/dashboard/pulse" className="text-primary/80 hover:text-primary transition-colors text-sm">Ver feed</Link></CardHeader><CardContent><div className="space-y-4">{feedItems.slice(0, 3).map((item) => <Link href="/dashboard/pulse" key={item.item_id}><div className="p-4 rounded-xl bg-card/5 hover:bg-card/10 transition-colors cursor-pointer"><p className="text-sm text-muted-foreground line-clamp-2">{item.content.text}</p></div></Link>)}</div></CardContent></Card>;
 
