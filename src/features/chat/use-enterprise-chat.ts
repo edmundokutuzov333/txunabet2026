@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { collection, doc, endBefore, limitToLast, onSnapshot, orderBy, query, getDocs, type DocumentSnapshot, type Timestamp } from 'firebase/firestore';
+import { collection, endBefore, limitToLast, onSnapshot, orderBy, query, getDocs, type DocumentSnapshot, type Timestamp } from 'firebase/firestore';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { initializeFirebase, useUser } from '@/firebase';
 import { useEnterpriseIdentity } from '@/features/auth/use-enterprise-identity';
@@ -11,13 +11,19 @@ export type EnterpriseMessage = {
   id: string; conversationId: string; companyId: string; senderId: string; body: string; type: 'text' | 'system' | 'file';
   createdAt: Timestamp | string | null; updatedAt?: Timestamp | string | null; replyToMessageId?: string | null;
   attachments?: ChatAttachment[]; mentions?: string[]; reactions?: Record<string, string[]>; editedAt?: Timestamp | string | null;
-  deletedAt?: Timestamp | string | null; clientMessageId?: string | null; queued?: boolean;
+  deletedAt?: Timestamp | string | null; clientMessageId?: string | null;
 };
 export type EnterpriseConversation = {
   id: string; companyId: string; type: 'company_general' | 'department' | 'direct' | 'group'; name?: string | null;
-  departmentId?: string | null; memberIds?: string[]; createdBy: string; lastMessageAt?: Timestamp | string | null; lastMessageId?: string | null;
-  pinnedMessageIds?: string[];
+  departmentId?: string | null; memberIds?: string[]; createdBy: string; lastMessageAt?: Timestamp | string | null; lastMessageId?: string | null; pinnedMessageIds?: string[];
 };
+
+function isLiveTyping(value: unknown, now: number): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { expiresAt?: { toMillis?: () => number; toDate?: () => Date } };
+  const expiresAt = candidate.expiresAt?.toMillis?.() ?? candidate.expiresAt?.toDate?.().getTime() ?? 0;
+  return expiresAt > now;
+}
 
 export function useEnterpriseChat(conversationId: string | null) {
   const { user } = useUser();
@@ -28,10 +34,13 @@ export function useEnterpriseChat(conversationId: string | null) {
   const [hasMore, setHasMore] = useState(false);
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
   const oldestSnapshot = useRef<DocumentSnapshot | null>(null);
+  const olderCache = useRef<EnterpriseMessage[]>([]);
   const pending = useRef(new Map<string, EnterpriseMessage>());
 
   useEffect(() => {
-    if (!conversationId || !user || !identity) { setMessages([]); setLoading(false); return; }
+    olderCache.current = [];
+    oldestSnapshot.current = null;
+    if (!conversationId || !user || !identity) { setMessages([]); setLoading(false); setTypingUserIds([]); return; }
     const { firestore } = initializeFirebase();
     const messagesRef = collection(firestore, 'conversations', conversationId, 'messages');
     const messagesQuery = query(messagesRef, orderBy('createdAt', 'asc'), limitToLast(50));
@@ -42,14 +51,17 @@ export function useEnterpriseChat(conversationId: string | null) {
       setHasMore(snapshot.size === 50);
       setMessages((previous) => {
         const optimistic = Array.from(pending.current.values()).filter((message) => !fresh.some((item) => item.clientMessageId === message.clientMessageId));
-        return [...fresh, ...optimistic];
+        const byId = new Map<string, EnterpriseMessage>();
+        [...olderCache.current, ...fresh, ...optimistic, ...previous].forEach((message) => byId.set(message.id, message));
+        return Array.from(byId.values()).sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
       });
       setLoading(false);
     }, () => setLoading(false));
     const typingRef = collection(firestore, 'conversations', conversationId, 'typing');
     const unsubscribeTyping = onSnapshot(typingRef, (snapshot) => {
       const now = Date.now();
-      setTypingUserIds(snapshot.docs.map((item) => item.data()).filter((item) => item.userId !== user.uid && item.expiresAt?.toMillis?.() > now || (item.expiresAt?.toDate?.() instanceof Date && item.expiresAt.toDate().getTime() > now)).map((item) => item.userId));
+      const active = snapshot.docs.map((item) => item.data()).filter((item) => item.userId !== user.uid && isLiveTyping(item, now)).map((item) => String(item.userId));
+      setTypingUserIds(active);
     }, () => setTypingUserIds([]));
     return () => { unsubscribeMessages(); unsubscribeTyping(); };
   }, [conversationId, identity, user]);
@@ -63,10 +75,13 @@ export function useEnterpriseChat(conversationId: string | null) {
       const olderQuery = query(messagesRef, orderBy('createdAt', 'asc'), endBefore(oldestSnapshot.current), limitToLast(50));
       const snapshot = await getDocs(olderQuery);
       const older = snapshot.docs.map((item) => item.data() as EnterpriseMessage);
-      oldestSnapshot.current = snapshot.docs[0] ?? oldestSnapshot.current;
+      if (older.length) {
+        olderCache.current = [...older, ...olderCache.current];
+        oldestSnapshot.current = snapshot.docs[0];
+      }
       setHasMore(snapshot.size === 50);
       setMessages((previous) => {
-        const byId = new Map<string, EnterpriseMessage>([...older, ...previous].map((message) => [message.id, message]));
+        const byId = new Map<string, EnterpriseMessage>([...olderCache.current, ...previous].map((message) => [message.id, message]));
         return Array.from(byId.values()).sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
       });
     } finally { setLoadingOlder(false); }
@@ -85,13 +100,7 @@ export function useEnterpriseChat(conversationId: string | null) {
       const downloadUrl = await getDownloadURL(storageRef(storage, path));
       attachments.push({ name: file.name, storagePath: path, mimeType: file.type || 'application/octet-stream', sizeBytes: file.size, downloadUrl });
     }
-
-    const optimistic: EnterpriseMessage = {
-      id: `optimistic_${clientMessageId}`, conversationId, companyId: identity.companyId, senderId: user.uid,
-      body: input.body.trim(), type: attachments.length ? 'file' : 'text', createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(), replyToMessageId: input.replyToMessageId ?? null, attachments,
-      mentions: input.mentions ?? [], reactions: {}, clientMessageId,
-    };
+    const optimistic: EnterpriseMessage = { id: `optimistic_${clientMessageId}`, conversationId, companyId: identity.companyId, senderId: user.uid, body: input.body.trim(), type: attachments.length ? 'file' : 'text', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), replyToMessageId: input.replyToMessageId ?? null, attachments, mentions: input.mentions ?? [], reactions: {}, clientMessageId };
     pending.current.set(clientMessageId, optimistic);
     setMessages((current) => [...current, optimistic]);
 
