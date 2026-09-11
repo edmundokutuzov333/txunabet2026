@@ -1,4 +1,3 @@
-
 'use server';
 /**
  * @fileOverview A flow to generate a predictive and personalized daily briefing for a user.
@@ -11,8 +10,10 @@
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
 
+const IdentifierSchema = z.union([z.string(), z.number()]);
+
 const TaskSchema = z.object({
-  id: z.number(),
+  id: IdentifierSchema,
   title: z.string(),
   description: z.string(),
   status: z.string(),
@@ -21,7 +22,7 @@ const TaskSchema = z.object({
 });
 
 const MeetingSchema = z.object({
-  id: z.number(),
+  id: IdentifierSchema,
   title: z.string(),
   description: z.string(),
   date: z.string(),
@@ -30,9 +31,9 @@ const MeetingSchema = z.object({
 });
 
 const DailyBriefingInputSchema = z.object({
-  userName: z.string().describe('The name of the user.'),
-  tasks: z.array(TaskSchema).describe('A list of the user\'s tasks for today.'),
-  meetings: z.array(MeetingSchema).describe('A list of the user\'s meetings for today.'),
+  userName: z.string().max(200),
+  tasks: z.array(TaskSchema).max(100),
+  meetings: z.array(MeetingSchema).max(100),
 });
 export type DailyBriefingInput = z.infer<typeof DailyBriefingInputSchema>;
 
@@ -56,7 +57,7 @@ Regras do Resumo:
 - Sê conciso e direto ao ponto. Usa parágrafos curtos.
 - NÃO listes todas as tarefas e reuniões. Em vez disso, sintetiza os pontos mais importantes.
 - Identifica as prioridades do dia (tarefas com prioridade 'urgent' ou 'high').
-- Encontra sinergias. Se uma tarefa está relacionada com uma reunião, menciona isso. (Ex: "Vejo que tens a tarefa 'X', que é perfeita para preparar a tua reunião 'Y' à tarde.")
+- Encontra sinergias. Se uma tarefa está relacionada com uma reunião, menciona isso.
 - Termina com uma nota positiva e motivacional.
 - A resposta deve ser SEMPRE em Português.
 
@@ -83,7 +84,6 @@ Nenhuma reunião agendada para hoje.
 Agora, com base nesta informação, gera o resumo diário para {{userName}}.`,
 });
 
-
 const getDailyBriefingFlow = ai.defineFlow(
   {
     name: 'getDailyBriefingFlow',
@@ -91,14 +91,11 @@ const getDailyBriefingFlow = ai.defineFlow(
     outputSchema: DailyBriefingOutputSchema,
   },
   async input => {
-    // If there's nothing to report, return a friendly message.
     if (input.tasks.length === 0 && input.meetings.length === 0) {
       return { briefing: `Bom dia, ${input.userName}! Parece que tem um dia tranquilo pela frente. Sem tarefas ou reuniões urgentes. Aproveite para planear a sua semana!` };
     }
-    
+
     const { output } = await prompt(input);
     return output!;
   }
 );
-
-    
