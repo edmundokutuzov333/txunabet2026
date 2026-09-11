@@ -1,24 +1,14 @@
 import 'server-only';
 
 import { FieldValue, Timestamp, type DocumentData } from 'firebase-admin/firestore';
-import { getAdminDb } from '@/server/firebase/admin';
+import { getAdminDb, getAdminStorage } from '@/server/firebase/admin';
 import { requireIdentity, requirePermission, type AuthenticatedIdentity } from '@/server/authorization';
 import { PERMISSIONS, type Permission } from '@/server/authorization/permissions';
 import { writeAuditEvent } from '@/server/repositories/audit';
 
 export type ModuleName =
-  | 'cloud'
-  | 'calendar'
-  | 'meetings'
-  | 'integrations'
-  | 'knowledge-base'
-  | 'campaigns'
-  | 'tasks'
-  | 'reports'
-  | 'workflows'
-  | 'automations'
-  | 'pulse'
-  | 'workspaces';
+  | 'cloud' | 'calendar' | 'meetings' | 'integrations' | 'knowledge-base' | 'campaigns'
+  | 'tasks' | 'reports' | 'workflows' | 'automations' | 'pulse' | 'workspaces';
 
 type ModuleConfig = { collection: string; read: Permission; write: Permission; titleField?: string };
 
@@ -41,6 +31,7 @@ const SAFE_KEY = /^[A-Za-z0-9_-]{1,180}$/;
 const MAX_RECORDS = 200;
 const MAX_KEYS = 60;
 const MAX_STRING = 5000;
+const SERVER_FIELDS = new Set(['id', 'companyId', 'ownerId', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'version', 'searchTitle']);
 
 function configFor(module: string): ModuleConfig {
   if (!(module in CONFIG)) throw new Error('MODULE_NOT_FOUND');
@@ -53,7 +44,6 @@ function normalizePrimitive(value: unknown): unknown {
   if (typeof value === 'boolean') return value;
   if (value === null) return null;
   if (Array.isArray(value)) return value.slice(0, 200).map(normalizePrimitive);
-  if (value instanceof Date) return value;
   return undefined;
 }
 
@@ -61,7 +51,7 @@ function sanitizePayload(payload: unknown): Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('INVALID_PAYLOAD');
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(payload as Record<string, unknown>).slice(0, MAX_KEYS)) {
-    if (!SAFE_KEY.test(key)) continue;
+    if (!SAFE_KEY.test(key) || SERVER_FIELDS.has(key)) continue;
     const normalized = normalizePrimitive(value);
     if (normalized !== undefined) result[key] = normalized;
   }
@@ -82,7 +72,7 @@ function publicRecord(doc: { id: string; data: () => DocumentData | undefined })
 
 function titleFor(config: ModuleConfig, data: Record<string, unknown>): string {
   const value = config.titleField ? data[config.titleField] : undefined;
-  return typeof value === 'string' && value.trim() ? value.trim().slice(0, 240) : 'Sem título';
+  return typeof value === 'string' && value.trim() ? value.trim().slice(0, 240) : '';
 }
 
 async function ensureCompanyAccess(identity: AuthenticatedIdentity, data: DocumentData | undefined): Promise<void> {
@@ -113,6 +103,7 @@ export async function createModuleRecord(module: ModuleName, rawData: unknown): 
   const identity = await requirePermission(config.write);
   const data = sanitizePayload(rawData);
   const title = titleFor(config, data);
+  if (config.titleField && !title) throw new Error('TITLE_REQUIRED');
   const ref = getAdminDb().collection(config.collection).doc();
   const now = FieldValue.serverTimestamp();
   await ref.create({ ...data, id: ref.id, companyId: identity.companyId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: now, updatedAt: now, version: 1, searchTitle: title.toLowerCase() });
@@ -129,7 +120,9 @@ export async function updateModuleRecord(module: ModuleName, id: string, rawData
   if (!snapshot.exists) throw new Error('NOT_FOUND');
   await ensureCompanyAccess(identity, snapshot.data());
   const data = sanitizePayload(rawData);
-  const title = titleFor(config, { ...(snapshot.data() ?? {}), ...data });
+  const merged = { ...(snapshot.data() ?? {}), ...data } as Record<string, unknown>;
+  const title = titleFor(config, merged);
+  if (config.titleField && !title) throw new Error('TITLE_REQUIRED');
   await ref.update({ ...data, updatedBy: identity.uid, updatedAt: FieldValue.serverTimestamp(), version: FieldValue.increment(1), searchTitle: title.toLowerCase() });
   await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'update', resourceType: module, resourceId: id, metadata: { title } });
   return getModuleRecord(module, id);
@@ -142,7 +135,9 @@ export async function deleteModuleRecord(module: ModuleName, id: string): Promis
   const ref = getAdminDb().collection(config.collection).doc(id);
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('NOT_FOUND');
-  await ensureCompanyAccess(identity, snapshot.data());
+  const data = snapshot.data();
+  await ensureCompanyAccess(identity, data);
+  if (module === 'cloud' && typeof data?.storagePath === 'string') await getAdminStorage().bucket().file(data.storagePath).delete({ ignoreNotFound: true });
   await ref.delete();
   await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'delete', resourceType: module, resourceId: id });
 }
