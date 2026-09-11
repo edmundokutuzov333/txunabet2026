@@ -1,4 +1,5 @@
-import { describe, expect, test } from 'node:test';
+import { describe, test } from 'node:test';
+import assert from 'node:assert/strict';
 import { mergeMessageState } from '../../src/lib/quality/message-state';
 
 describe('message reconciliation', () => {
@@ -7,8 +8,8 @@ describe('message reconciliation', () => {
       [{ id: 'optimistic-c1', clientMessageId: 'c1', createdAt: '2026-01-01T10:00:00.000Z' }],
       [{ id: 'server-1', clientMessageId: 'c1', createdAt: '2026-01-01T10:00:01.000Z' }],
     );
-    expect(result).toHaveLength(1);
-    expect(result[0]?.id).toBe('server-1');
+    assert.equal(result.length, 1);
+    assert.equal(result[0]?.id, 'server-1');
   });
 
   test('keeps concurrent messages in timestamp order', () => {
@@ -17,7 +18,7 @@ describe('message reconciliation', () => {
       [{ id: 'a', createdAt: '2026-01-01T10:00:01.000Z' }],
       [{ id: 'c', createdAt: '2026-01-01T10:00:03.000Z' }],
     );
-    expect(result.map((item) => item.id)).toEqual(['a', 'b', 'c']);
+    assert.deepEqual(result.map((item) => item.id), ['a', 'b', 'c']);
   });
 
   test('retains unique historical pages while realtime snapshots repeat records', () => {
@@ -25,6 +26,6 @@ describe('message reconciliation', () => {
       [{ id: 'old-1', createdAt: '2026-01-01T09:00:00.000Z' }],
       [{ id: 'old-1', createdAt: '2026-01-01T09:00:00.000Z' }, { id: 'new-1', createdAt: '2026-01-01T10:00:00.000Z' }],
     );
-    expect(result.map((item) => item.id)).toEqual(['old-1', 'new-1']);
+    assert.deepEqual(result.map((item) => item.id), ['old-1', 'new-1']);
   });
 });
