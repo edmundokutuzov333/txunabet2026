@@ -14,7 +14,7 @@ const createMessageSchema = z.object({
 });
 
 function searchTokens(value: string) {
-  return Array.from(new Set(value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9@_-]+/g, ' ').split(/\s+/).filter((token) => token.length >= 2).slice(0, 40)));
+  return Array.from(new Set(value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9@_-]+/g, ' ').split(/\s+/).filter((token) => token.length >= 2).slice(0, 80)));
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ conversationId: string }> }) {
@@ -32,7 +32,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ conv
     const snapshot = await messagesQuery.get();
     return NextResponse.json({ messages: snapshot.docs.map((doc) => doc.data()).reverse(), hasMore: snapshot.size === limit });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'FORBIDDEN' }, { status: 403 });
+    const message = error instanceof Error ? error.message : 'FORBIDDEN';
+    return NextResponse.json({ error: message }, { status: message === 'UNAUTHENTICATED' ? 401 : 403 });
   }
 }
 
@@ -43,7 +44,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ con
     const input = createMessageSchema.parse(await request.json());
     const existing = await ref.collection('messages').where('clientMessageId', '==', input.clientMessageId).limit(1).get();
     if (!existing.empty) return NextResponse.json({ message: existing.docs[0].data(), duplicate: true });
-    input.mentions = input.mentions.filter((uid) => uid !== identity.uid);
+
+    const validMentionIds = new Set<string>();
+    for (const uid of input.mentions) {
+      if (uid === identity.uid) continue;
+      const member = await getAdminDb().collection('companies').doc(identity.companyId).collection('members').doc(uid).get();
+      if (member.exists && member.data()?.status === 'active') validMentionIds.add(uid);
+    }
+    input.mentions = Array.from(validMentionIds);
 
     for (const attachment of input.attachments) {
       if (!attachment.storagePath.startsWith(`companies/${identity.companyId}/conversations/${conversationId}/attachments/${identity.uid}/`)) return NextResponse.json({ error: 'ATTACHMENT_PATH_NOT_ALLOWED' }, { status: 400 });
@@ -53,6 +61,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ con
       if (!replyTarget.exists) return NextResponse.json({ error: 'REPLY_TARGET_NOT_FOUND' }, { status: 400 });
     }
 
+    const attachmentTokens = input.attachments.flatMap((attachment) => searchTokens(attachment.name));
     const messageRef = ref.collection('messages').doc();
     const now = FieldValue.serverTimestamp();
     const message = {
@@ -71,7 +80,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ con
       editedAt: null,
       deletedAt: null,
       clientMessageId: input.clientMessageId,
-      searchTokens: searchTokens(input.body),
+      searchTokens: Array.from(new Set([...searchTokens(input.body), ...attachmentTokens])),
     };
 
     const batch = getAdminDb().batch();
@@ -79,9 +88,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ con
     batch.set(ref, { updatedAt: now, lastMessageAt: now, lastMessageId: messageRef.id }, { merge: true });
     await batch.commit();
     await createNotificationsForMessage({ conversationId, senderId: identity.uid, companyId: identity.companyId, body: input.body, mentions: input.mentions, replyToMessageId: input.replyToMessageId, messageId: messageRef.id });
-    return NextResponse.json({ message: { ...message, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, conversation }, { status: 201 });
+    return NextResponse.json({ message: { ...message, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'INVALID_REQUEST';
-    return NextResponse.json({ error: message }, { status: message === 'FORBIDDEN' ? 403 : 400 });
+    return NextResponse.json({ error: message }, { status: message === 'FORBIDDEN' ? 403 : message === 'UNAUTHENTICATED' ? 401 : 400 });
   }
 }
