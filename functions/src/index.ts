@@ -7,6 +7,7 @@ import * as admin from 'firebase-admin';
 import * as logger from 'firebase-functions/logger';
 import { z } from 'zod';
 import Stripe from 'stripe';
+export { automationWorker, triggerAutomationEvent, runAutomationNow } from './automation-engine';
 
 admin.initializeApp();
 const db = admin.firestore();
