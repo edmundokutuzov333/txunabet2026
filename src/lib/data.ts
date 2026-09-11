@@ -2,11 +2,16 @@
 
 /**
  * Transitional compatibility adapter.
- * This module is intentionally not a source of business data.
- * Migrated domains must use src/server and the Firebase client SDK.
+ *
+ * These exports intentionally contain no fabricated business records. Migrated
+ * domains must use server services/repositories and the Firebase client SDK.
+ * The concrete shapes below exist only so legacy screens can render explicit
+ * empty/loading states without weakening the TypeScript contract of the new
+ * production domains.
  */
 
 import { initializeFirebase } from '@/firebase';
+import type { Context } from '@/lib/types';
 
 export type LegacyUser = {
   id: string;
@@ -27,17 +32,37 @@ export type LegacyDepartment = {
   id: number;
   name: string;
   slug: string;
-  head: any;
+  head: string;
   memberCount: number;
   budget: number;
   projects: number;
   description: string;
   goals: string[];
-  [key: string]: any;
 };
 
-export type LegacyProject = { id: number; name: string; progress: number; status: string; [key: string]: any };
-export type LegacyTask = { id: string | number; title: string; description: string; dueDate: string; priority: string; contextId?: string; [key: string]: any };
+export type LegacyProject = {
+  id: number;
+  name: string;
+  progress: number;
+  status: string;
+};
+
+export type LegacyChecklistItem = { id: string; text: string; checked: boolean };
+export type LegacyTaskStatus = 'backlog' | 'todo' | 'in-progress' | 'blocked' | 'done' | 'completed';
+export type LegacyTask = {
+  id: string | number;
+  title: string;
+  description: string;
+  dueDate: string;
+  priority: string;
+  status: LegacyTaskStatus;
+  assignedTo: string[];
+  context: Context | null;
+  contextId?: string;
+  checklist: LegacyChecklistItem[];
+  labels: string[];
+};
+
 export type LegacyCampaign = {
   id: string;
   name: string;
@@ -49,13 +74,67 @@ export type LegacyCampaign = {
   risks: string;
   startDate: string;
   endDate: string;
-  kpis: { signups: number; cpa: number; ggr?: number; [key: string]: any };
-  [key: string]: any;
+  kpis: { signups: number; cpa: number; ggr?: number };
 };
 
-export type Context = { type: 'campaign' | 'game_operation' | 'user' | 'meeting'; id: string; name: string };
-export type Workspace = { id: string; name: string; description: string; members: string[]; owner_id: string; privacy: 'public' | 'private'; linked_tasks: string[]; linked_campaigns: string[]; linked_files: string[]; linked_chat_channel_id: string; linked_knowledge_base_articles: string[]; [key: string]: any };
-export type FeedItem = { item_id: string; timestamp: string; author_user_id: string | 'system'; item_type: 'post' | 'poll' | 'kudos' | 'system_event'; content: { text: string }; reactions: { user_id: string; reaction_type: 'like' | 'celebrate' | 'idea' | 'thanks' }[]; comments_count: number; is_pinned: boolean };
+export type LegacyMeeting = {
+  id: string;
+  title: string;
+  description: string;
+  date: string;
+  time: string;
+  duration: number;
+  status: 'scheduled' | 'active' | 'completed' | string;
+  participants: string[];
+};
+
+export type LegacyCalendarEvent = {
+  id: string;
+  title: string;
+  description: string;
+  start: string;
+  end: string;
+  location: string;
+  type: string;
+  participants: string[];
+  createdBy: string;
+};
+
+export type LegacyHoliday = { id: string; name: string; date: string };
+export type LegacyFile = { id: string; name: string; size: string; sharedWith: string[] };
+export type LegacyAutomation = { id: number; name: string; active: boolean };
+export type LegacyWorkflow = { id: string; name: string; department: string; steps: number };
+export type LegacyKnowledgeArticle = { id: string; title: string; category: string; views: number; tags: string[] };
+export type LegacyGameOperation = { id: string; name: string; provider: string; gameType: string; riskLevel: 'low' | 'medium' | 'high' | string; stage: string };
+export type LegacyIntegration = { id: string; name: string; type: string; status: string; icon?: string; connected: boolean };
+export type LegacyReport = { id: string; name: string; description: string; status: string; createdAt: string };
+export type LegacyLooseRecord = Record<string, any>;
+
+export type Workspace = {
+  id: string;
+  name: string;
+  description: string;
+  members: string[];
+  owner_id: string;
+  privacy: 'public' | 'private';
+  linked_tasks: string[];
+  linked_campaigns: string[];
+  linked_files: string[];
+  linked_chat_channel_id: string;
+  linked_knowledge_base_articles: string[];
+};
+
+export type FeedItem = {
+  item_id: string;
+  timestamp: string;
+  author_user_id: string | 'system';
+  item_type: 'post' | 'poll' | 'kudos' | 'system_event';
+  content: { text: string };
+  reactions: { user_id: string; reaction_type: 'like' | 'celebrate' | 'idea' | 'thanks' }[];
+  comments_count: number;
+  is_pinned: boolean;
+};
+
 export type Bet = { id: string; playerId: string; market: string; stake: number; odds: number; status: 'pending' | 'won' | 'lost' | 'cashed_out'; timestamp: string };
 export type Affiliate = { id: string; name: string; trackingCode: string; commissionRate: number };
 export type MenuItem = { id: string; title: string; badge?: number | string; permissions?: string[]; department?: string; status?: LegacyUser['status'] };
@@ -63,23 +142,23 @@ export type MenuSection = { title: string; action?: boolean; items: MenuItem[] }
 
 export const users: LegacyUser[] = [];
 export const tasks: LegacyTask[] = [];
-export const meetings: Record<string, any>[] = [];
+export const meetings: LegacyMeeting[] = [];
 export const departments: LegacyDepartment[] = [];
 export const campaigns: LegacyCampaign[] = [];
-export const projects = campaigns;
-export const gameOperations: Record<string, any>[] = [];
-export const knowledgeBase: Record<string, any>[] = [];
-export const documents: Record<string, any>[] = [];
-export const reports: Record<string, any>[] = [];
-export const workflows: Record<string, any>[] = [];
-export const automations: Record<string, any>[] = [];
-export const integrations: Record<string, any>[] = [];
-export const nationalHolidays: Record<string, any>[] = [];
-export const calendarEvents: Record<string, any>[] = [];
-export const cloudFiles: Record<string, any>[] = [];
+export const projects: LegacyCampaign[] = campaigns;
+export const gameOperations: LegacyGameOperation[] = [];
+export const knowledgeBase: LegacyKnowledgeArticle[] = [];
+export const documents: LegacyLooseRecord[] = [];
+export const reports: LegacyReport[] = [];
+export const workflows: LegacyWorkflow[] = [];
+export const automations: LegacyAutomation[] = [];
+export const integrations: LegacyIntegration[] = [];
+export const nationalHolidays: LegacyHoliday[] = [];
+export const calendarEvents: LegacyCalendarEvent[] = [];
+export const cloudFiles: LegacyFile[] = [];
 export const workspaces: Workspace[] = [];
 export const feedItems: FeedItem[] = [];
-export const messages: Record<string, Record<string, any>[]> = {};
+export const messages: Record<string, LegacyLooseRecord[]> = {};
 export const bets: Bet[] = [];
 export const affiliates: Affiliate[] = [];
 export const portalData = { dailyFocus: '', hotMarkets: [] as string[], countdownEvent: '', countdownDays: 0, recordOdd: 0 };
@@ -97,14 +176,14 @@ export function getCurrentUser(): LegacyUser {
 }
 
 export const getTasksForUser = (_userId: string | number): LegacyTask[] => [];
-export const getUpcomingMeetings = (_userId: string | number): Record<string, any>[] => [];
+export const getUpcomingMeetings = (_userId: string | number): LegacyMeeting[] => [];
 export const getCampaignsForUser = (_userId: string | number): LegacyCampaign[] => [];
 export const getDepartment = (_slug: string): LegacyDepartment | undefined => undefined;
 export const getDepartmentMembers = (_deptName: string): LegacyUser[] => [];
 export const getDepartmentProjects = (_deptName: string): LegacyProject[] => [];
-export const getCalendarEventsForUser = (_userId: string | number): Record<string, any>[] => [];
+export const getCalendarEventsForUser = (_userId: string | number): LegacyCalendarEvent[] => [];
 export const getWorkspacesForUser = (_userId: string | number): Workspace[] => [];
 export const getWorkspaceById = (_workspaceId: string): Workspace | undefined => undefined;
 export const getWorkspaceTasks = (_taskIds: (string | number)[]): LegacyTask[] => [];
-export const getWorkspaceFiles = (_fileIds: (string | number)[]): Record<string, any>[] => [];
+export const getWorkspaceFiles = (_fileIds: (string | number)[]): LegacyFile[] => [];
 export const getCampaignById = (_campaignId: string): LegacyCampaign | undefined => undefined;
