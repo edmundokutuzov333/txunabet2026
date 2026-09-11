@@ -10,13 +10,12 @@ const createMessageSchema = z.object({
   clientMessageId: z.string().min(8).max(128),
   replyToMessageId: z.string().min(1).max(128).nullable().optional(),
   mentions: z.array(z.string().min(1).max(128)).max(100).default([]),
-  attachments: z.array(z.object({
-    name: z.string().min(1).max(255),
-    storagePath: z.string().min(1).max(500),
-    mimeType: z.string().min(1).max(120),
-    sizeBytes: z.number().int().positive().max(100 * 1024 * 1024),
-  })).max(10).default([]),
+  attachments: z.array(z.object({ name: z.string().min(1).max(255), storagePath: z.string().min(1).max(500), mimeType: z.string().min(1).max(120), sizeBytes: z.number().int().positive().max(100 * 1024 * 1024) })).max(10).default([]),
 });
+
+function searchTokens(value: string) {
+  return Array.from(new Set(value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9@_-]+/g, ' ').split(/\s+/).filter((token) => token.length >= 2).slice(0, 40)));
+}
 
 export async function GET(request: Request, { params }: { params: Promise<{ conversationId: string }> }) {
   try {
@@ -25,14 +24,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ conv
     const url = new URL(request.url);
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? '50'), 1), 100);
     const before = url.searchParams.get('before');
-    let query = ref.collection('messages').orderBy('createdAt', 'desc').limit(limit);
+    let messagesQuery = ref.collection('messages').orderBy('createdAt', 'desc').limit(limit);
     if (before) {
       const cursor = await ref.collection('messages').doc(before).get();
-      if (cursor.exists) query = ref.collection('messages').orderBy('createdAt', 'desc').startAfter(cursor).limit(limit);
+      if (cursor.exists) messagesQuery = ref.collection('messages').orderBy('createdAt', 'desc').startAfter(cursor).limit(limit);
     }
-    const snapshot = await query.get();
-    const messages = snapshot.docs.map((doc) => doc.data()).reverse();
-    return NextResponse.json({ messages, hasMore: snapshot.size === limit });
+    const snapshot = await messagesQuery.get();
+    return NextResponse.json({ messages: snapshot.docs.map((doc) => doc.data()).reverse(), hasMore: snapshot.size === limit });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'FORBIDDEN' }, { status: 403 });
   }
@@ -41,20 +39,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ conv
 export async function POST(request: Request, { params }: { params: Promise<{ conversationId: string }> }) {
   try {
     const { conversationId } = await params;
-    const { identity, ref, data: conversation } = await getConversationOrThrow(conversationId);
+    const { identity, ref } = await getConversationOrThrow(conversationId);
     const input = createMessageSchema.parse(await request.json());
-
     const existing = await ref.collection('messages').where('clientMessageId', '==', input.clientMessageId).limit(1).get();
     if (!existing.empty) return NextResponse.json({ message: existing.docs[0].data(), duplicate: true });
-
-    if (input.mentions.some((uid) => uid === identity.uid)) input.mentions = input.mentions.filter((uid) => uid !== identity.uid);
+    input.mentions = input.mentions.filter((uid) => uid !== identity.uid);
 
     for (const attachment of input.attachments) {
-      if (!attachment.storagePath.startsWith(`companies/${identity.companyId}/conversations/${conversationId}/attachments/${identity.uid}/`)) {
-        return NextResponse.json({ error: 'ATTACHMENT_PATH_NOT_ALLOWED' }, { status: 400 });
-      }
+      if (!attachment.storagePath.startsWith(`companies/${identity.companyId}/conversations/${conversationId}/attachments/${identity.uid}/`)) return NextResponse.json({ error: 'ATTACHMENT_PATH_NOT_ALLOWED' }, { status: 400 });
     }
-
     if (input.replyToMessageId) {
       const replyTarget = await ref.collection('messages').doc(input.replyToMessageId).get();
       if (!replyTarget.exists) return NextResponse.json({ error: 'REPLY_TARGET_NOT_FOUND' }, { status: 400 });
@@ -78,22 +71,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ con
       editedAt: null,
       deletedAt: null,
       clientMessageId: input.clientMessageId,
+      searchTokens: searchTokens(input.body),
     };
 
     const batch = getAdminDb().batch();
     batch.set(messageRef, message);
     batch.set(ref, { updatedAt: now, lastMessageAt: now, lastMessageId: messageRef.id }, { merge: true });
     await batch.commit();
-
-    await createNotificationsForMessage({
-      conversationId,
-      senderId: identity.uid,
-      companyId: identity.companyId,
-      body: input.body,
-      mentions: input.mentions,
-      replyToMessageId: input.replyToMessageId,
-    });
-
+    await createNotificationsForMessage({ conversationId, senderId: identity.uid, companyId: identity.companyId, body: input.body, mentions: input.mentions, replyToMessageId: input.replyToMessageId, messageId: messageRef.id });
     return NextResponse.json({ message: { ...message, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, conversation }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'INVALID_REQUEST';
