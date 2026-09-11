@@ -6,7 +6,10 @@
     { "collectionGroup": "messages", "queryScope": "COLLECTION_GROUP", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "searchTokens", "arrayConfig": "CONTAINS" } ] },
     { "collectionGroup": "messages", "queryScope": "COLLECTION_GROUP", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "senderId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
     { "collectionGroup": "items", "queryScope": "COLLECTION_GROUP", "fields": [ { "fieldPath": "userId", "order": "ASCENDING" }, { "fieldPath": "read", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
-    { "collectionGroup": "conversations", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] }
+    { "collectionGroup": "conversations", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "versions", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "version", "order": "DESCENDING" } ] },
+    { "collectionGroup": "comments", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "createdAt", "order": "ASCENDING" } ] }
   ],
   "fieldOverrides": []
 }
