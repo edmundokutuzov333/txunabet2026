@@ -1,0 +1,55 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isCompanyMember(companyId) {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/companies/$(companyId)/members/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function isCompanyAdmin(companyId) {
+      return isCompanyMember(companyId)
+        && firestore.get(/databases/(default)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.role in ['owner', 'admin'];
+    }
+
+    function validUpload() {
+      return request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 100 * 1024 * 1024;
+    }
+
+    match /companies/{companyId}/users/{userId}/avatars/{fileName} {
+      allow read: if isCompanyMember(companyId);
+      allow write: if isCompanyMember(companyId)
+        && (request.auth.uid == userId || isCompanyAdmin(companyId))
+        && validUpload()
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isCompanyMember(companyId)
+        && (request.auth.uid == userId || isCompanyAdmin(companyId));
+    }
+
+    match /companies/{companyId}/users/{userId}/files/{allPaths=**} {
+      allow read: if isCompanyMember(companyId);
+      allow write: if isCompanyMember(companyId)
+        && (request.auth.uid == userId || isCompanyAdmin(companyId))
+        && validUpload();
+      allow delete: if isCompanyMember(companyId)
+        && (request.auth.uid == userId || isCompanyAdmin(companyId));
+    }
+
+    match /companies/{companyId}/conversations/{conversationId}/attachments/{allPaths=**} {
+      allow read, write: if isCompanyMember(companyId) && validUpload();
+      allow delete: if isCompanyMember(companyId);
+    }
+
+    match /companies/{companyId}/documents/{documentId}/{allPaths=**} {
+      allow read, write: if isCompanyMember(companyId) && validUpload();
+      allow delete: if isCompanyMember(companyId);
+    }
+  }
+}
