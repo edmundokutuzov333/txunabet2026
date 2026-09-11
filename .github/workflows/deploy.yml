@@ -29,6 +29,8 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - name: Refresh lockfile in runner
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
