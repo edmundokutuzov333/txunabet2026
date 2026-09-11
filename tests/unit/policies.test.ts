@@ -1,4 +1,5 @@
-import { describe, expect, test } from 'node:test';
+import { describe, test } from 'node:test';
+import assert from 'node:assert/strict';
 import {
   canAccessConversation,
   canDirectMessage,
@@ -18,64 +19,64 @@ describe('enterprise policies', () => {
   const marketing = { uid: 'user-a', companyId: 'company-1', departmentIds: ['marketing'] };
 
   test('allows a company general conversation', () => {
-    expect(canAccessConversation(marketing, { companyId: 'company-1', type: 'company_general' })).toBe(true);
+    assert.equal(canAccessConversation(marketing, { companyId: 'company-1', type: 'company_general' }), true);
   });
 
   test('allows same-department access and denies a different department', () => {
-    expect(canAccessConversation(marketing, { companyId: 'company-1', type: 'department', departmentId: 'marketing' })).toBe(true);
-    expect(canAccessConversation(marketing, { companyId: 'company-1', type: 'department', departmentId: 'finance' })).toBe(false);
+    assert.equal(canAccessConversation(marketing, { companyId: 'company-1', type: 'department', departmentId: 'marketing' }), true);
+    assert.equal(canAccessConversation(marketing, { companyId: 'company-1', type: 'department', departmentId: 'finance' }), false);
   });
 
   test('direct conversations stay inside the company', () => {
-    expect(canDirectMessage(marketing, { uid: 'user-b', companyId: 'company-1', active: true })).toBe(true);
-    expect(canDirectMessage(marketing, { uid: 'user-b', companyId: 'company-2', active: true })).toBe(false);
-    expect(canDirectMessage(marketing, { uid: 'user-a', companyId: 'company-1', active: true })).toBe(false);
+    assert.equal(canDirectMessage(marketing, { uid: 'user-b', companyId: 'company-1', active: true }), true);
+    assert.equal(canDirectMessage(marketing, { uid: 'user-b', companyId: 'company-2', active: true }), false);
+    assert.equal(canDirectMessage(marketing, { uid: 'user-a', companyId: 'company-1', active: true }), false);
   });
 
   test('document shares reject external or inactive users', () => {
-    expect(canShareWithUser(marketing, { uid: 'user-b', companyId: 'company-1', active: true }, 'editor')).toBe(true);
-    expect(canShareWithUser(marketing, { uid: 'user-c', companyId: 'company-2', active: true }, 'viewer')).toBe(false);
-    expect(canShareWithUser(marketing, { uid: 'user-d', companyId: 'company-1', active: false }, 'viewer')).toBe(false);
+    assert.equal(canShareWithUser(marketing, { uid: 'user-b', companyId: 'company-1', active: true }, 'editor'), true);
+    assert.equal(canShareWithUser(marketing, { uid: 'user-c', companyId: 'company-2', active: true }, 'viewer'), false);
+    assert.equal(canShareWithUser(marketing, { uid: 'user-d', companyId: 'company-1', active: false }, 'viewer'), false);
   });
 
   test('department sharing is company-scoped', () => {
-    expect(canShareWithDepartment(marketing, { companyId: 'company-1', departmentId: 'finance' })).toBe(true);
-    expect(canShareWithDepartment(marketing, { companyId: 'company-2', departmentId: 'finance' })).toBe(false);
+    assert.equal(canShareWithDepartment(marketing, { companyId: 'company-1', departmentId: 'finance' }), true);
+    assert.equal(canShareWithDepartment(marketing, { companyId: 'company-2', departmentId: 'finance' }), false);
   });
 
   test('search tokenization is normalized and bounded', () => {
-    expect(normalizeSearchTokens('Olá, MARKETING! risco risco campanha')).toEqual(['ola', 'marketing', 'risco', 'campanha']);
+    assert.deepEqual(normalizeSearchTokens('Olá, MARKETING! risco risco campanha'), ['ola', 'marketing', 'risco', 'campanha']);
   });
 
   test('AI input is sanitized and bounded', () => {
-    expect(sanitizeAIInput('  hello\u0000\nworld  ')).toBe('hello\nworld');
-    expect(sanitizeAIInput('x'.repeat(50), 12)).toHaveLength(12);
+    assert.equal(sanitizeAIInput('  hello\u0000\nworld  '), 'hello\nworld');
+    assert.equal(sanitizeAIInput('x'.repeat(50), 12).length, 12);
   });
 
   test('AI context cannot cross companies', () => {
-    expect(validateAIContext({ companyId: 'company-1', sourceCompanyId: 'company-1' })).toBe(true);
-    expect(validateAIContext({ companyId: 'company-1', sourceCompanyId: 'company-2' })).toBe(false);
+    assert.equal(validateAIContext({ companyId: 'company-1', sourceCompanyId: 'company-1' }), true);
+    assert.equal(validateAIContext({ companyId: 'company-1', sourceCompanyId: 'company-2' }), false);
   });
 
   test('reaction membership is unique', () => {
-    expect(uniqueReactionUsers(['a', 'a', 'b', '', 'b'])).toEqual(['a', 'b']);
+    assert.deepEqual(uniqueReactionUsers(['a', 'a', 'b', '', 'b']), ['a', 'b']);
   });
 
   test('document version increases only when a checkpoint changes content', () => {
-    expect(nextDocumentVersion(4, true)).toBe(5);
-    expect(nextDocumentVersion(4, false)).toBe(4);
-    expect(nextDocumentVersion(-2, true)).toBe(1);
+    assert.equal(nextDocumentVersion(4, true), 5);
+    assert.equal(nextDocumentVersion(4, false), 4);
+    assert.equal(nextDocumentVersion(-2, true), 1);
   });
 
   test('notification priority is mention, then reply, then normal message', () => {
-    expect(classifyNotification({ senderId: 'a', recipientId: 'b', mentioned: true })).toBe('mention');
-    expect(classifyNotification({ senderId: 'a', recipientId: 'b', mentioned: false, replyToMessageId: 'm1' })).toBe('reply');
-    expect(classifyNotification({ senderId: 'a', recipientId: 'b', mentioned: false })).toBe('new_message');
-    expect(classifyNotification({ senderId: 'a', recipientId: 'a', mentioned: true })).toBe('new_message');
+    assert.equal(classifyNotification({ senderId: 'a', recipientId: 'b', mentioned: true }), 'mention');
+    assert.equal(classifyNotification({ senderId: 'a', recipientId: 'b', mentioned: false, replyToMessageId: 'm1' }), 'reply');
+    assert.equal(classifyNotification({ senderId: 'a', recipientId: 'b', mentioned: false }), 'new_message');
+    assert.equal(classifyNotification({ senderId: 'a', recipientId: 'a', mentioned: true }), 'new_message');
   });
 
   test('mentions are filtered to company recipients and channel is special', () => {
-    expect(extractMentionIds(['user-b', 'user-b', 'user-x', '@channel'], ['user-a', 'user-b'])).toEqual(['user-b']);
-    expect(hasChannelMention(['user-b', '@CHANNEL'])).toBe(true);
+    assert.deepEqual(extractMentionIds(['user-b', 'user-b', 'user-x', '@channel'], ['user-a', 'user-b']), ['user-b']);
+    assert.equal(hasChannelMention(['user-b', '@CHANNEL']), true);
   });
 });
