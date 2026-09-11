@@ -1,0 +1,56 @@
+name: Firestore Backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 1 * * *'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  backup:
+    name: Export production Firestore
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_BACKUP_SERVICE_ACCOUNT }}
+
+      - name: Install gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Validate required configuration
+        env:
+          PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          DATABASE_ID: ${{ secrets.FIRESTORE_DATABASE_ID }}
+          BUCKET: ${{ secrets.FIRESTORE_BACKUP_BUCKET }}
+        run: |
+          test -n "$PROJECT_ID"
+          test -n "$DATABASE_ID"
+          test -n "$BUCKET"
+
+      - name: Export Firestore
+        env:
+          PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          DATABASE_ID: ${{ secrets.FIRESTORE_DATABASE_ID }}
+          BUCKET: ${{ secrets.FIRESTORE_BACKUP_BUCKET }}
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%Y-%m-%dT%H-%M-%SZ)
+          gcloud firestore export "gs://${BUCKET}/firestore/${DATE}" \
+            --project="$PROJECT_ID" \
+            --database="$DATABASE_ID"
+
+      - name: Apply retention policy
+        env:
+          BUCKET: ${{ secrets.FIRESTORE_BACKUP_BUCKET }}
+        run: |
+          set -euo pipefail
+          gcloud storage objects list "gs://${BUCKET}/firestore/**" \
+            --format='value(name)' | sort -r | tail -n +31 | while read -r object; do
+              [ -z "$object" ] || gcloud storage rm "gs://${BUCKET}/${object#gs://$BUCKET/}"
+            done
