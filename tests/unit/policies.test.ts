@@ -4,6 +4,10 @@ import {
   canDirectMessage,
   canShareWithDepartment,
   canShareWithUser,
+  classifyNotification,
+  extractMentionIds,
+  hasChannelMention,
+  nextDocumentVersion,
   normalizeSearchTokens,
   sanitizeAIInput,
   uniqueReactionUsers,
@@ -55,5 +59,23 @@ describe('enterprise policies', () => {
 
   test('reaction membership is unique', () => {
     expect(uniqueReactionUsers(['a', 'a', 'b', '', 'b'])).toEqual(['a', 'b']);
+  });
+
+  test('document version increases only when a checkpoint changes content', () => {
+    expect(nextDocumentVersion(4, true)).toBe(5);
+    expect(nextDocumentVersion(4, false)).toBe(4);
+    expect(nextDocumentVersion(-2, true)).toBe(1);
+  });
+
+  test('notification priority is mention, then reply, then normal message', () => {
+    expect(classifyNotification({ senderId: 'a', recipientId: 'b', mentioned: true })).toBe('mention');
+    expect(classifyNotification({ senderId: 'a', recipientId: 'b', mentioned: false, replyToMessageId: 'm1' })).toBe('reply');
+    expect(classifyNotification({ senderId: 'a', recipientId: 'b', mentioned: false })).toBe('new_message');
+    expect(classifyNotification({ senderId: 'a', recipientId: 'a', mentioned: true })).toBe('new_message');
+  });
+
+  test('mentions are filtered to company recipients and channel is special', () => {
+    expect(extractMentionIds(['user-b', 'user-b', 'user-x', '@channel'], ['user-a', 'user-b'])).toEqual(['user-b']);
+    expect(hasChannelMention(['user-b', '@CHANNEL'])).toBe(true);
   });
 });
