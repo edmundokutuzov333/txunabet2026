@@ -11,15 +11,47 @@ admin.initializeApp();
 const db = admin.firestore();
 const REGION = 'africa-south1';
 const stripeApiKey = defineSecret('STRIPE_API_KEY');
-
 const CORPORATE_DOMAIN = process.env.CORPORATE_EMAIL_DOMAIN || 'txunabet.com';
+
+type EnterpriseRole = 'owner' | 'admin' | 'manager' | 'member' | 'viewer';
+
+type FunctionIdentity = {
+  uid: string;
+  companyId: string;
+  role: EnterpriseRole;
+};
+
+async function requireCompanyIdentity(request: { auth?: { uid: string; token: Record<string, unknown> } }): Promise<FunctionIdentity> {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'A autenticação é necessária.');
+
+  const companyId = typeof request.auth.token.companyId === 'string' ? request.auth.token.companyId : '';
+  if (!companyId) throw new HttpsError('permission-denied', 'A conta não possui uma empresa ativa.');
+
+  const member = await db.collection('companies').doc(companyId).collection('members').doc(request.auth.uid).get();
+  if (!member.exists || member.data()?.status !== 'active') {
+    throw new HttpsError('permission-denied', 'A membership empresarial não está ativa.');
+  }
+
+  const role = member.data()?.role as EnterpriseRole;
+  if (!['owner', 'admin', 'manager', 'member', 'viewer'].includes(role)) {
+    throw new HttpsError('permission-denied', 'Role empresarial inválido.');
+  }
+
+  return { uid: request.auth.uid, companyId, role };
+}
+
+function requireMfa(request: { auth?: { token: Record<string, unknown> } }): void {
+  const firebaseClaims = request.auth?.token.firebase as { sign_in_second_factor?: string } | undefined;
+  if (!firebaseClaims?.sign_in_second_factor) {
+    throw new HttpsError('failed-precondition', 'A autenticação multi-fator é obrigatória para esta operação.');
+  }
+}
 
 export const beforecreate = beforeUserCreated(
   { region: REGION, cpu: 1, memory: '256MiB', concurrency: 80 },
   (event) => {
     const email = event.data?.email?.trim().toLowerCase();
     if (!email) throw new HttpsError('invalid-argument', 'Um email corporativo é obrigatório.');
-
     const domain = email.split('@')[1];
     if (domain !== CORPORATE_DOMAIN) {
       logger.warn('Blocked non-corporate registration attempt', { email });
@@ -41,7 +73,6 @@ export const oncreate = v1Auth.user().onCreate(
       createdAt: now,
       updatedAt: now,
     }, { merge: true });
-
     logger.info('Created pending enterprise user profile', { uid: user.uid });
   }
 );
@@ -96,6 +127,7 @@ export class OrderService {
     currency: 'usd' | 'brl' | 'eur';
     paymentMethodId: string;
     customerId: string;
+    companyId: string;
   }) {
     const [hasStock, taxAmount] = await Promise.all([
       this.stockService.verifyStock(orderData.itemId, orderData.quantity),
@@ -109,14 +141,29 @@ export class OrderService {
       amount: totalAmount,
       currency: orderData.currency,
       payment_method: orderData.paymentMethodId,
-      customer: orderData.customerId,
       confirm: true,
       automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
       metadata: {
+        firebaseUid: orderData.customerId,
+        companyId: orderData.companyId,
         itemId: orderData.itemId,
         quantity: String(orderData.quantity),
         tax_amount: String(taxAmount),
       },
+    });
+
+    await db.collection('transactions').doc(paymentIntent.id).set({
+      id: paymentIntent.id,
+      companyId: orderData.companyId,
+      userId: orderData.customerId,
+      externalId: paymentIntent.id,
+      source: 'stripe',
+      amount: totalAmount,
+      currency: orderData.currency,
+      status: paymentIntent.status === 'succeeded' ? 'succeeded' : 'pending',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      metadata: { itemId: orderData.itemId, quantity: String(orderData.quantity), taxAmount: String(taxAmount) },
     });
 
     return {
@@ -138,7 +185,9 @@ const PlaceOrderSchema = z.object({
 export const placeOrder = onCall(
   { secrets: [stripeApiKey], region: REGION, enforceAppCheck: true },
   async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Authentication is required.');
+    const identity = await requireCompanyIdentity(request);
+    requireMfa(request);
+
     const parsed = PlaceOrderSchema.safeParse(request.data);
     if (!parsed.success) throw new HttpsError('invalid-argument', 'Invalid order data.');
 
@@ -147,11 +196,12 @@ export const placeOrder = onCall(
         status: 'success',
         orderResult: await OrderService.getInstance(stripeApiKey.value()).processNewOrder({
           ...parsed.data,
-          customerId: request.auth.uid,
+          customerId: identity.uid,
+          companyId: identity.companyId,
         }),
       };
     } catch (error) {
-      logger.error('Order processing failed', { uid: request.auth.uid, error });
+      logger.error('Order processing failed', { uid: identity.uid, companyId: identity.companyId, error });
       if (error instanceof HttpsError) throw error;
       throw new HttpsError('internal', 'The system could not complete the request.');
     }
@@ -167,7 +217,9 @@ const PaymentSchema = z.object({
 export const createPaymentIntent = onCall(
   { secrets: [stripeApiKey], region: REGION, enforceAppCheck: true },
   async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'A autenticação é necessária.');
+    const identity = await requireCompanyIdentity(request);
+    requireMfa(request);
+
     const parsed = PaymentSchema.safeParse(request.data);
     if (!parsed.success) throw new HttpsError('invalid-argument', 'Dados de pagamento inválidos.');
 
@@ -177,32 +229,49 @@ export const createPaymentIntent = onCall(
         amount: parsed.data.amount,
         currency: parsed.data.currency,
         payment_method: parsed.data.paymentMethodId,
-        customer: request.auth.uid,
         confirm: true,
         automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
-        metadata: { firebaseUid: request.auth.uid },
+        metadata: { firebaseUid: identity.uid, companyId: identity.companyId },
       });
+
+      await db.collection('transactions').doc(paymentIntent.id).set({
+        id: paymentIntent.id,
+        companyId: identity.companyId,
+        userId: identity.uid,
+        externalId: paymentIntent.id,
+        source: 'stripe',
+        amount: parsed.data.amount,
+        currency: parsed.data.currency,
+        status: paymentIntent.status === 'succeeded' ? 'succeeded' : 'pending',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        metadata: {},
+      });
+
       return { success: true, clientSecret: paymentIntent.client_secret, status: paymentIntent.status };
     } catch (error) {
-      logger.error('Payment intent creation failed', { uid: request.auth.uid, error });
+      logger.error('Payment intent creation failed', { uid: identity.uid, companyId: identity.companyId, error });
       throw new HttpsError('aborted', 'Falha no processamento do pagamento.');
     }
   }
 );
 
 export const setAdminRole = onCall({ region: REGION }, async (request) => {
-  if (!request.auth || !['owner', 'admin'].includes(String(request.auth.token.role))) {
-    throw new HttpsError('permission-denied', 'Only an existing enterprise administrator can change roles.');
+  const caller = await requireCompanyIdentity(request);
+  requireMfa(request);
+  if (!['owner', 'admin'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'Only enterprise administrators can change roles.');
   }
 
   const schema = z.object({ uid: z.string().min(1).max(128), companyId: z.string().min(1).max(128), role: z.enum(['owner', 'admin', 'manager', 'member', 'viewer']) });
   const parsed = schema.safeParse(request.data);
   if (!parsed.success) throw new HttpsError('invalid-argument', 'Dados de membership inválidos.');
+  if (parsed.data.companyId !== caller.companyId) throw new HttpsError('permission-denied', 'Cannot manage another company.');
 
-  const memberRef = db.collection('companies').doc(parsed.data.companyId).collection('members').doc(parsed.data.uid);
+  const memberRef = db.collection('companies').doc(caller.companyId).collection('members').doc(parsed.data.uid);
   await memberRef.set({
     userId: parsed.data.uid,
-    companyId: parsed.data.companyId,
+    companyId: caller.companyId,
     role: parsed.data.role,
     permissions: [],
     departmentIds: [],
@@ -210,16 +279,17 @@ export const setAdminRole = onCall({ region: REGION }, async (request) => {
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
 
+  const target = await admin.auth().getUser(parsed.data.uid);
   await admin.auth().setCustomUserClaims(parsed.data.uid, {
-    ...(await admin.auth().getUser(parsed.data.uid)).customClaims,
+    ...(target.customClaims ?? {}),
     role: parsed.data.role,
-    companyId: parsed.data.companyId,
+    companyId: caller.companyId,
   });
   await admin.auth().revokeRefreshTokens(parsed.data.uid);
 
-  await db.collection('companies').doc(parsed.data.companyId).collection('auditLogs').add({
-    companyId: parsed.data.companyId,
-    actorId: request.auth.uid,
+  await db.collection('companies').doc(caller.companyId).collection('auditLogs').add({
+    companyId: caller.companyId,
+    actorId: caller.uid,
     action: 'membership.role_changed',
     resourceType: 'membership',
     resourceId: parsed.data.uid,
