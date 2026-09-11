@@ -1,6 +1,6 @@
-
 'use client';
-import { LogIn, AlertCircle, Eye, EyeOff, Loader2, UserPlus, ArrowRight } from 'lucide-react';
+
+import { LogIn, AlertCircle, Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,74 +9,62 @@ import TxunaLogo from '@/components/icons/txuna-logo';
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, getIdToken } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { useAuth } from '@/firebase';
 import { useRouter } from 'next/navigation';
-import { users } from '@/lib/data';
+
+async function establishServerSession(idToken: string): Promise<void> {
+  const response = await fetch('/api/auth/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken }),
+  });
+  if (!response.ok) throw new Error('SESSION_CREATION_FAILED');
+}
 
 export default function LoginPage() {
   const { toast } = useToast();
   const auth = useAuth();
   const router = useRouter();
 
-  const [email, setEmail] = useState('admin@txunabet.com');
-  const [password, setPassword] = useState('Oryon@2024!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      
-      const idToken = await userCredential.user.getIdToken(true);
-      
-      toast({
-        title: 'Login bem-sucedido!',
-        description: 'Bem-vindo de volta à Txuna Bet.',
-      });
+      const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      await credential.user.reload();
 
-    } catch (err: any) {
-      console.error('Login error:', err);
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
-        const mockUser = users.find(u => u.email === email && u.password === password);
-        
-        if (mockUser) {
-          try {
-            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-            const idToken = await userCredential.user.getIdToken(true);
-            
-            toast({
-              title: `Conta para ${mockUser.name} criada!`,
-              description: 'A sua conta foi criada com sucesso e a sessão iniciada.',
-            });
-
-          } catch (signupErr: any) {
-            console.error('Signup error during mock user login:', signupErr);
-            setError('Falha ao criar e autenticar a sua conta. Contacte o administrador.');
-          }
-        } else {
-          setError('Credenciais inválidas. Verifique o seu email e password.');
-        }
-      } else {
-        let errorMessage = 'Ocorreu um erro desconhecido.';
-        switch (err.code) {
-          case 'auth/wrong-password':
-            errorMessage = 'Password incorreta. Por favor, verifique a sua password.';
-            break;
-          case 'auth/invalid-email':
-            errorMessage = 'O formato do email é inválido.';
-            break;
-          default:
-            errorMessage = 'Falha no login. Por favor, tente novamente.';
-            break;
-        }
-        setError(errorMessage);
+      if (!credential.user.emailVerified) {
+        await signOut(auth);
+        setError('O seu email ainda não foi verificado. Verifique a caixa de entrada e tente novamente.');
+        return;
       }
+
+      const idToken = await credential.user.getIdToken(true);
+      await establishServerSession(idToken);
+
+      toast({
+        title: 'Login bem-sucedido',
+        description: 'Sessão empresarial criada com segurança.',
+      });
+      router.replace('/dashboard');
+    } catch (err) {
+      console.error('Login error:', err);
+      const code = typeof err === 'object' && err && 'code' in err ? String((err as { code?: unknown }).code) : '';
+      const message = code === 'auth/invalid-credential' || code === 'auth/user-not-found' || code === 'auth/wrong-password'
+        ? 'Email ou password inválidos.'
+        : code === 'auth/too-many-requests'
+          ? 'Demasiadas tentativas. Aguarde alguns minutos e tente novamente.'
+          : 'Não foi possível iniciar a sessão. Tente novamente.';
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -88,73 +76,38 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <TxunaLogo className="mx-auto mb-4 w-52 h-16" />
           <h1 className="text-4xl font-bold text-foreground mb-1">Entre para a Ação</h1>
-          <p className="text-muted-foreground">Plataforma de Gestão Txuna Bet</p>
+          <p className="text-muted-foreground">Plataforma Corporativa Txuna Bet</p>
         </div>
 
         {error && (
-          <div className="bg-destructive/20 text-destructive-foreground p-3 rounded-lg mb-6 flex items-center gap-3 text-sm">
-            <AlertCircle className="w-5 h-5" />
+          <div className="bg-destructive/20 text-destructive-foreground p-3 rounded-lg mb-6 flex items-center gap-3 text-sm" role="alert">
+            <AlertCircle className="w-5 h-5 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-6">
+        <form onSubmit={handleLogin} className="space-y-6" noValidate>
           <div className="space-y-2">
-            <Label htmlFor="email" className="text-muted-foreground">
-              Email
-            </Label>
-            <div className="relative">
-              <Input
-                type="email"
-                id="email"
-                name="email"
-                className="pl-4 p-3 h-auto rounded-xl bg-card border-border focus:border-primary placeholder:text-muted-foreground"
-                placeholder="seu.email@txunabet.com"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={loading}
-              />
-            </div>
+            <Label htmlFor="email" className="text-muted-foreground">Email corporativo</Label>
+            <Input type="email" id="email" name="email" autoComplete="username" className="pl-4 p-3 h-auto rounded-xl bg-card border-border focus:border-primary" placeholder="nome@txunabet.com" required value={email} onChange={(event) => setEmail(event.target.value)} disabled={loading} />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
             <div className="relative">
-              <Input
-                type={showPassword ? 'text' : 'password'}
-                id="password"
-                name="password"
-                className="pl-4 pr-10 p-3 h-auto rounded-xl bg-card border-border focus:border-primary placeholder:text-muted-foreground"
-                placeholder="••••••••"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={loading}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:bg-transparent"
-                onClick={() => setShowPassword(!showPassword)}
-              >
+              <Input type={showPassword ? 'text' : 'password'} id="password" name="password" autoComplete="current-password" className="pl-4 pr-10 p-3 h-auto rounded-xl bg-card border-border focus:border-primary" placeholder="A sua password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={loading} />
+              <Button type="button" variant="ghost" size="icon" aria-label={showPassword ? 'Ocultar password' : 'Mostrar password'} className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:bg-transparent" onClick={() => setShowPassword((visible) => !visible)}>
                 {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </Button>
             </div>
           </div>
 
           <div className="flex items-center justify-between text-sm">
-            <Label
-              htmlFor="remember"
-              className="flex items-center gap-2 font-normal text-muted-foreground cursor-pointer"
-            >
-              <Checkbox id="remember" name="remember" className="rounded bg-card border-border text-primary focus:ring-primary" />
+            <Label htmlFor="remember" className="flex items-center gap-2 font-normal text-muted-foreground cursor-pointer">
+              <Checkbox id="remember" name="remember" className="rounded bg-card border-border" />
               Lembrar-me
             </Label>
-            <Link href="/forgot-password" className="text-primary/80 hover:text-primary transition-colors">
-              Esqueceu a password?
-            </Link>
+            <Link href="/forgot-password" className="text-primary/80 hover:text-primary transition-colors">Esqueceu a password?</Link>
           </div>
 
           <Button type="submit" className="w-full btn-primary-gradient py-3 h-auto text-base font-semibold" disabled={loading}>
@@ -164,10 +117,8 @@ export default function LoginPage() {
         </form>
 
         <div className="mt-8 text-center">
-            <p className="text-sm text-muted-foreground">Não tem uma conta?</p>
-            <Link href="/login/signup" className="font-semibold text-primary hover:text-primary/80 transition-colors flex items-center justify-center gap-2 mt-1">
-                Registe-se e ganhe o seu bónus <ArrowRight className="w-4 h-4"/>
-            </Link>
+          <p className="text-sm text-muted-foreground">Acesso exclusivo a colaboradores autorizados.</p>
+          <Link href="/login/signup" className="font-semibold text-primary hover:text-primary/80 transition-colors flex items-center justify-center gap-2 mt-2">Pedir acesso à plataforma <ArrowRight className="w-4 h-4" /></Link>
         </div>
       </div>
     </main>
