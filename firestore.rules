@@ -24,6 +24,20 @@ service cloud.firestore {
           || (c.type == 'department' && isDepartmentMember(c.departmentId))
           || (c.type in ['direct', 'group'] && request.auth.uid in c.memberIds));
     }
+    function documentAccess(documentId) {
+      let d = get(/databases/$(database)/documents/documents/$(documentId)).data;
+      return isCompanyMember(d.companyId)
+        && d.status == 'active'
+        && (d.ownerId == request.auth.uid
+          || request.auth.uid in d.viewerIds
+          || request.auth.uid in d.editorIds
+          || d.sharedCompany == true
+          || d.sharedDepartmentIds.hasAny(get(/databases/$(database)/documents/companies/$(d.companyId)/members/$(request.auth.uid)).data.departmentIds));
+    }
+    function documentEditAccess(documentId) {
+      let d = get(/databases/$(database)/documents/documents/$(documentId)).data;
+      return documentAccess(documentId) && (d.ownerId == request.auth.uid || request.auth.uid in d.editorIds);
+    }
     function hasPermission(companyId, permission) {
       return isCompanyMember(companyId)
         && (isCompanyAdmin(companyId) || permission in get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.permissions);
@@ -51,7 +65,7 @@ service cloud.firestore {
 
     match /departments/{departmentId} {
       allow get: if signedIn() && resource.data.companyId != null && isCompanyMember(resource.data.companyId) && (isDepartmentMember(departmentId) || isCompanyAdmin(resource.data.companyId));
-      allow list: if signedIn() && isCompanyMember(resource.data.companyId);
+      allow list: if false;
       allow create: if signedIn() && isCompanyAdmin(request.resource.data.companyId);
       allow update, delete: if isCompanyAdmin(resource.data.companyId);
       match /members/{userId} {
@@ -98,6 +112,20 @@ service cloud.firestore {
       allow get, list: if signedIn() && request.auth.uid == userId;
       allow update: if signedIn() && request.auth.uid == userId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
       allow create, delete: if false;
+    }
+
+    match /documents/{documentId} {
+      allow get: if documentAccess(documentId);
+      allow list: if false;
+      allow create, update, delete: if false;
+      match /versions/{versionId} {
+        allow get, list: if documentAccess(documentId);
+        allow create, update, delete: if false;
+      }
+      match /comments/{commentId} {
+        allow get, list: if documentAccess(documentId);
+        allow create, update, delete: if false;
+      }
     }
 
     match /docs/{docId} {
