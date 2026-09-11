@@ -36,12 +36,14 @@ describe('OrderService', () => {
       amount: 10000,
       currency: 'usd' as const,
       paymentMethodId: 'pm_123',
-      customerId: 'cust_123',
+      customerId: 'firebase-user-123',
+      companyId: 'txuna-bet',
     };
 
     mockStockService.verifyStock.mockResolvedValue(true);
     mockTaxService.calculateTax.mockResolvedValue(1700);
     (mockStripeInstance.paymentIntents.create as jest.Mock).mockResolvedValue({
+      id: 'pi_123',
       client_secret: 'pi_secret_123',
       status: 'succeeded',
     });
@@ -54,10 +56,11 @@ describe('OrderService', () => {
       amount: 11700,
       currency: 'usd',
       payment_method: orderData.paymentMethodId,
-      customer: orderData.customerId,
       confirm: true,
       automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
       metadata: {
+        firebaseUid: orderData.customerId,
+        companyId: orderData.companyId,
         itemId: orderData.itemId,
         quantity: '1',
         tax_amount: '1700',
@@ -73,7 +76,8 @@ describe('OrderService', () => {
       amount: 5000,
       currency: 'eur' as const,
       paymentMethodId: 'pm_456',
-      customerId: 'cust_456',
+      customerId: 'firebase-user-456',
+      companyId: 'txuna-bet',
     };
 
     mockStockService.verifyStock.mockResolvedValue(false);
@@ -92,7 +96,8 @@ describe('OrderService', () => {
       amount: 10000,
       currency: 'usd' as const,
       paymentMethodId: 'pm_card_error',
-      customerId: 'cust_789',
+      customerId: 'firebase-user-789',
+      companyId: 'txuna-bet',
     };
 
     mockStockService.verifyStock.mockResolvedValue(true);
