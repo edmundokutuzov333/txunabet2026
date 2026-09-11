@@ -1,7 +1,9 @@
-# Settings to manage and configure a Firebase App Hosting backend.
-# https://firebase.google.com/docs/app-hosting/configure
-
+# Firebase App Hosting runtime configuration.
+# Autoscaling is intentionally left to App Hosting defaults until real load,
+# latency and concurrency measurements are available. A hard maxInstances: 1
+# would turn traffic spikes into avoidable queueing and cold-start pressure.
 runConfig:
-  # Increase this value if you'd like to automatically spin up
-  # more instances in response to increased traffic.
-  maxInstances: 1
+  cpu: 1
+  memoryMiB: 512
+  concurrency: 80
+  minInstances: 0
