@@ -5,6 +5,7 @@ import { collection, endBefore, limitToLast, onSnapshot, orderBy, query, getDocs
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { initializeFirebase, useUser } from '@/firebase';
 import { useEnterpriseIdentity } from '@/features/auth/use-enterprise-identity';
+import { mergeMessageState } from '@/lib/quality/message-state';
 
 export type ChatAttachment = { name: string; storagePath: string; mimeType: string; sizeBytes: number; downloadUrl?: string };
 export type EnterpriseMessage = {
@@ -40,6 +41,7 @@ export function useEnterpriseChat(conversationId: string | null) {
   useEffect(() => {
     olderCache.current = [];
     oldestSnapshot.current = null;
+    pending.current.clear();
     if (!conversationId || !user || !identity) { setMessages([]); setLoading(false); setTypingUserIds([]); return; }
     const { firestore } = initializeFirebase();
     const messagesRef = collection(firestore, 'conversations', conversationId, 'messages');
@@ -49,19 +51,18 @@ export function useEnterpriseChat(conversationId: string | null) {
       const fresh = snapshot.docs.map((item) => item.data() as EnterpriseMessage);
       oldestSnapshot.current = snapshot.docs[0] ?? null;
       setHasMore(snapshot.size === 50);
-      setMessages((previous) => {
-        const optimistic = Array.from(pending.current.values()).filter((message) => !fresh.some((item) => item.clientMessageId === message.clientMessageId));
-        const byId = new Map<string, EnterpriseMessage>();
-        [...olderCache.current, ...fresh, ...optimistic, ...previous].forEach((message) => byId.set(message.id, message));
-        return Array.from(byId.values()).sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
-      });
+      setMessages((previous) => mergeMessageState(olderCache.current, fresh, Array.from(pending.current.values()), previous));
+      for (const message of fresh) {
+        if (message.clientMessageId) pending.current.delete(message.clientMessageId);
+      }
+      setMessages((previous) => mergeMessageState(olderCache.current, fresh, Array.from(pending.current.values()), previous));
       setLoading(false);
     }, () => setLoading(false));
     const typingRef = collection(firestore, 'conversations', conversationId, 'typing');
     const unsubscribeTyping = onSnapshot(typingRef, (snapshot) => {
       const now = Date.now();
       const active = snapshot.docs.map((item) => item.data()).filter((item) => item.userId !== user.uid && isLiveTyping(item, now)).map((item) => String(item.userId));
-      setTypingUserIds(active);
+      setTypingUserIds(Array.from(new Set(active)));
     }, () => setTypingUserIds([]));
     return () => { unsubscribeMessages(); unsubscribeTyping(); };
   }, [conversationId, identity, user]);
@@ -76,14 +77,11 @@ export function useEnterpriseChat(conversationId: string | null) {
       const snapshot = await getDocs(olderQuery);
       const older = snapshot.docs.map((item) => item.data() as EnterpriseMessage);
       if (older.length) {
-        olderCache.current = [...older, ...olderCache.current];
+        olderCache.current = mergeMessageState(older, olderCache.current);
         oldestSnapshot.current = snapshot.docs[0];
       }
       setHasMore(snapshot.size === 50);
-      setMessages((previous) => {
-        const byId = new Map<string, EnterpriseMessage>([...olderCache.current, ...previous].map((message) => [message.id, message]));
-        return Array.from(byId.values()).sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
-      });
+      setMessages((previous) => mergeMessageState(olderCache.current, previous));
     } finally { setLoadingOlder(false); }
   }, [conversationId, hasMore, loadingOlder]);
 
@@ -102,7 +100,7 @@ export function useEnterpriseChat(conversationId: string | null) {
     }
     const optimistic: EnterpriseMessage = { id: `optimistic_${clientMessageId}`, conversationId, companyId: identity.companyId, senderId: user.uid, body: input.body.trim(), type: attachments.length ? 'file' : 'text', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), replyToMessageId: input.replyToMessageId ?? null, attachments, mentions: input.mentions ?? [], reactions: {}, clientMessageId };
     pending.current.set(clientMessageId, optimistic);
-    setMessages((current) => [...current, optimistic]);
+    setMessages((current) => mergeMessageState(current, [optimistic]));
 
     const requestBody = JSON.stringify({ body: input.body, clientMessageId, replyToMessageId: input.replyToMessageId ?? null, mentions: input.mentions ?? [], attachments, type: attachments.length ? 'file' : 'text' });
     let lastError: unknown = null;
@@ -110,7 +108,7 @@ export function useEnterpriseChat(conversationId: string | null) {
       try {
         if (!navigator.onLine) await waitForOnline();
         const response = await fetch(`/api/chat/conversations/${conversationId}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include', body: requestBody });
-        if (response.ok) { pending.current.delete(clientMessageId); return; }
+        if (response.ok) { return; }
         const payload = await response.json().catch(() => ({ error: 'Falha no envio.' }));
         lastError = new Error(payload.error || 'Falha no envio.');
         if (response.status >= 400 && response.status < 500) break;
@@ -122,7 +120,7 @@ export function useEnterpriseChat(conversationId: string | null) {
     throw (lastError instanceof Error ? lastError : new Error('Não foi possível enviar a mensagem.'));
   }, [conversationId, identity, user]);
 
-  const markRead = useCallback(async (messageId: string) => { if (!conversationId || !messageId) return; await fetch(`/api/chat/conversations/${conversationId}/read`, { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include', body: JSON.stringify({ messageId }) }); }, [conversationId]);
+  const markRead = useCallback(async (messageId: string) => { if (!conversationId || !messageId) return; const response = await fetch(`/api/chat/conversations/${conversationId}/read`, { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include', body: JSON.stringify({ messageId }) }); if (!response.ok) throw new Error('Não foi possível actualizar a leitura.'); }, [conversationId]);
   const editMessage = useCallback(async (messageId: string, body: string) => { if (!conversationId) return; const response = await fetch(`/api/chat/conversations/${conversationId}/messages/${messageId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, credentials: 'include', body: JSON.stringify({ body }) }); if (!response.ok) throw new Error('Não foi possível editar a mensagem.'); }, [conversationId]);
   const deleteMessage = useCallback(async (messageId: string) => { if (!conversationId) return; const response = await fetch(`/api/chat/conversations/${conversationId}/messages/${messageId}`, { method: 'DELETE', credentials: 'include' }); if (!response.ok) throw new Error('Não foi possível apagar a mensagem.'); }, [conversationId]);
   const reactToMessage = useCallback(async (messageId: string, emoji: string, action: 'add' | 'remove') => { if (!conversationId) return; const response = await fetch(`/api/chat/conversations/${conversationId}/reactions`, { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include', body: JSON.stringify({ messageId, emoji, action }) }); if (!response.ok) throw new Error('Não foi possível actualizar a reacção.'); }, [conversationId]);
@@ -147,11 +145,4 @@ export async function listConversations(): Promise<EnterpriseConversation[]> {
   if (!response.ok) return [];
   const payload = await response.json();
   return payload.conversations ?? [];
-}
-
-function timeValue(value: EnterpriseMessage['createdAt']) {
-  if (!value) return 0;
-  if (typeof value === 'string') return Date.parse(value) || 0;
-  if ('toMillis' in value && typeof value.toMillis === 'function') return value.toMillis();
-  return 0;
 }
