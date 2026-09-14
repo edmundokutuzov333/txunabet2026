@@ -1,5 +1,5 @@
-import { ProductionModuleView } from '@/components/modules/production-module-view';
+import ProjectOsView from '@/components/project-os/project-os-view';
 
 export default function WorkspacesPage() {
-  return <ProductionModuleView module="workspaces" />;
+  return <ProjectOsView />;
 }
