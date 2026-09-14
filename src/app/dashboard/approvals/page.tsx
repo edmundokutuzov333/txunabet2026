@@ -1,28 +1,11 @@
 'use client';
-
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle2, Clock3, XCircle, ArrowLeft } from 'lucide-react';
+import { CheckCircle2, Clock3, XCircle, ArrowLeft, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
 
-export default function ApprovalsPage() {
-  const [items, setItems] = useState<any[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const load = async () => {
-    try {
-      const response = await fetch('/api/approvals', { cache: 'no-store', credentials: 'include' });
-      if (!response.ok) throw new Error('Não foi possível carregar as aprovações.');
-      const result = await response.json() as { data: any[] };
-      setItems(result.data);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Erro inesperado.'); }
-  };
-  useEffect(() => { void load(); }, []);
-  const decide = async (id: string, decision: 'approved' | 'rejected') => {
-    await fetch('/api/approvals', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, decision }) });
-    await load();
-  };
-  const pending = items.filter((item) => ['pending', 'requested', 'awaiting'].includes(String(item.status ?? '')));
-  return <div className="p-6 space-y-6"><div><Link href="/dashboard" className="text-sm text-muted-foreground inline-flex items-center gap-2"><ArrowLeft className="h-4 w-4" />Command Center</Link><h1 className="text-3xl font-bold mt-3">Approvals</h1><p className="text-muted-foreground mt-1">Pedidos que exigem decisão ficam persistidos e entram no Event Fabric.</p></div>{error && <p className="text-destructive">{error}</p>}<Card><CardHeader><CardTitle className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-primary" />Pendentes <Badge variant="secondary">{pending.length}</Badge></CardTitle></CardHeader><CardContent className="space-y-3">{pending.length ? pending.map((item) => <div key={String(item.id)} className="rounded-xl border p-4"><div className="flex flex-col md:flex-row gap-4 md:items-center justify-between"><div className="min-w-0"><div className="flex gap-2 items-center"><strong>{String(item.title ?? 'Aprovação')}</strong><Badge variant="outline">{String(item.priority ?? 'medium')}</Badge></div><p className="text-sm text-muted-foreground mt-1">{String(item.description ?? '')}</p><p className="text-xs text-muted-foreground mt-2">Aprovador: {String(item.approverId ?? '')}</p></div><div className="flex gap-2"><Button onClick={() => void decide(String(item.id), 'approved')}><CheckCircle2 className="h-4 w-4 mr-2" />Aprovar</Button><Button variant="outline" onClick={() => void decide(String(item.id), 'rejected')}><XCircle className="h-4 w-4 mr-2" />Rejeitar</Button></div></div></div>) : <p className="py-10 text-center text-muted-foreground">Nenhuma aprovação pendente.</p>}</CardContent></Card></div>;
-}
+type Item={id:string;title?:string;description?:string;state?:string;status?:string;mode?:string;approverId?:string;steps?:Array<{id:string;approverId?:string;status?:string}>;entityType?:string;entityId?:string;dueDate?:string};
+export default function ApprovalsPage(){const[items,setItems]=useState<Item[]>([]);const[error,setError]=useState<string|null>(null);const[comments,setComments]=useState<Record<string,string>>({});const load=async()=>{try{const r=await fetch('/api/workflow-platform?resource=approvals',{cache:'no-store'});const p=await r.json();if(!r.ok)throw new Error(p.error);setItems(Array.isArray(p.data)?p.data:[])}catch(e){setError(e instanceof Error?e.message:'Erro inesperado.')}};useEffect(()=>{void load()},[]);const decide=async(id:string,decision:'APPROVED'|'REJECTED'|'CHANGES_REQUESTED')=>{const r=await fetch('/api/workflow-platform',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'approval.decide',id,input:{decision,comment:comments[id]??''}})});const p=await r.json();if(!r.ok)setError(p.error);await load()};const pending=items.filter(i=>!['APPROVED','REJECTED','CANCELLED','EXPIRED'].includes(String(i.state??i.status).toUpperCase()));return <div className="p-6 space-y-6"><div className="flex justify-between items-center"><div><Link href="/dashboard" className="text-sm text-muted-foreground inline-flex items-center gap-2"><ArrowLeft className="h-4 w-4"/>Command Center</Link><h1 className="text-3xl font-bold mt-3">Approval Engine</h1><p className="text-muted-foreground mt-1">Single, sequential, parallel e conditional approvals com histórico e auditoria.</p></div><Button variant="outline" onClick={()=>void load()}><RefreshCw className="h-4 w-4 mr-2"/>Actualizar</Button></div>{error&&<p className="text-destructive text-sm">{error}</p>}<Card><CardHeader><CardTitle className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-primary"/>Em revisão <Badge variant="secondary">{pending.length}</Badge></CardTitle></CardHeader><CardContent className="space-y-3">{pending.length?pending.map(i=><div key={i.id} className="rounded-xl border p-4 space-y-3"><div className="flex flex-col md:flex-row gap-4 md:items-center justify-between"><div><div className="flex gap-2 items-center"><strong>{i.title??'Aprovação'}</strong><Badge variant="outline">{i.mode??'single'}</Badge><Badge variant="secondary">{i.state??i.status}</Badge></div><p className="text-sm text-muted-foreground mt-1">{i.description??''}</p><p className="text-xs text-muted-foreground mt-2">{i.entityType??'entity'} · {i.entityId??''} · {i.dueDate?`deadline ${i.dueDate}`:''}</p></div><div className="flex flex-wrap gap-2"><Button onClick={()=>void decide(i.id,'APPROVED')}><CheckCircle2 className="h-4 w-4 mr-2"/>Aprovar</Button><Button variant="outline" onClick={()=>void decide(i.id,'CHANGES_REQUESTED')}>Pedir alterações</Button><Button variant="destructive" onClick={()=>void decide(i.id,'REJECTED')}><XCircle className="h-4 w-4 mr-2"/>Rejeitar</Button></div></div><Textarea value={comments[i.id]??''} onChange={e=>setComments(c=>({...c,[i.id]:e.target.value}))} placeholder="Comentário de decisão / contexto"/><div className="text-xs text-muted-foreground">Steps: {(i.steps??[]).map(s=>`${s.approverId??'approver'}:${s.status??'PENDING'}`).join(' · ')}</div></div>):<p className="py-10 text-center text-muted-foreground">Nenhuma aprovação pendente.</p>}</CardContent></Card></div>}
