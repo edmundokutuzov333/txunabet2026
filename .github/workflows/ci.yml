@@ -54,6 +54,10 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npx --yes firebase-tools@latest emulators:exec --only firestore --project ci-project "npm run test:integration"
 
@@ -91,6 +95,10 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npx --yes firebase-tools@latest emulators:exec --only firestore,storage --project demo-oryon "npm run test:rules"
 
