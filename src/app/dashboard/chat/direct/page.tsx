@@ -26,11 +26,8 @@ type DirectoryMember = {
 };
 
 export default function DirectMessagesPage() {
-  const { identity, loading } = useEnterpriseIdentity();
-  const members = useMemo<DirectoryMember[]>(() => {
-    if (!identity?.userId) return [];
-    return [];
-  }, [identity?.userId]);
+  const { loading } = useEnterpriseIdentity();
+  const members = useMemo<DirectoryMember[]>(() => [], []);
 
   if (loading) {
     return (
