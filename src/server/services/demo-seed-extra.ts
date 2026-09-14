@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/server/firebase/admin';
 import type { AuthenticatedIdentity } from '@/server/authorization';
 import { BET_DEPARTMENTS } from './demo-seed';
@@ -15,7 +15,7 @@ const catalog = {
   module_pulse_items: ['Handle acima da média','PSP approval rate recuperou','KYC backlog dentro do SLA','Novo risco de chargeback','VIP churn signal','Trading exposure elevada','SOC signal resolved','Daily close completed','Campaign CAC improved','Responsible gaming queue reviewed'],
 } as const;
 
-async function seed(db: FirebaseFirestore.Firestore, collection: string, rows: Record<string, unknown>[]) {
+async function seed(db: Firestore, collection: string, rows: Record<string, unknown>[]) {
   const batch = db.batch();
   rows.forEach((row) => batch.set(db.collection(collection).doc(String(row.id)), row, { merge: true }));
   await batch.commit();
@@ -30,7 +30,7 @@ export async function ensureDemoDataExtra(identity: AuthenticatedIdentity) {
   const common = { companyId: identity.companyId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: ts, updatedAt: ts, status: 'active', version: 1 };
 
   for (const [collection, names] of Object.entries(catalog)) {
-    await seed(db, collection, names.map((name, i) => ({ ...common, id: `demo-${collection}-${i + 1}`, name: collection.includes('knowledge') ? undefined : name, title: collection.includes('knowledge') ? name : undefined, department: BET_DEPARTMENTS[i % BET_DEPARTMENTS.length][0], description: `Registo operacional de ${name}.`, connected: collection === 'module_integrations' ? true : undefined, health: collection === 'module_integrations' ? (i === 2 ? 'degraded' : 'healthy') : undefined, active: ['module_automations','module_integrations'].includes(collection) }))); 
+    await seed(db, collection, names.map((name, i) => ({ ...common, id: `demo-${collection}-${i + 1}`, name: collection.includes('knowledge') ? undefined : name, title: collection.includes('knowledge') ? name : undefined, department: BET_DEPARTMENTS[i % BET_DEPARTMENTS.length][0], description: `Registo operacional de ${name}.`, connected: collection === 'module_integrations' ? true : undefined, health: collection === 'module_integrations' ? (i === 2 ? 'degraded' : 'healthy') : undefined, active: ['module_automations','module_integrations'].includes(collection) })));
   }
 
   await seed(db, 'module_cloud_files', Array.from({ length: 20 }, (_, i) => ({ ...common, id: `demo-cloud-${i + 1}`, name: ['Trading shift files','Finance close pack','Compliance evidence','Marketing creative','VIP reports','Security evidence'][i % 6], type: 'folder', ownerId: identity.uid, sharedWith: [], storagePath: '', mimeType: 'application/x-directory', size: 0 })));
