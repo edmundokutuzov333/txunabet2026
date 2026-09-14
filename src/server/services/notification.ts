@@ -34,7 +34,7 @@ const DEFAULT_PREFERENCES: Record<NotificationCategory, NotificationMode> = {
   document: 'digest', meeting: 'instant', workflow: 'critical-only', alert: 'instant', decision: 'digest', request: 'instant', system: 'critical-only',
 };
 
-function titleForEvent(eventName: string, payload: Record<string, unknown>): { category: NotificationCategory; severity: NotificationSeverity; title: string; body: string } {
+export function describeNotificationEvent(eventName: string, payload: Record<string, unknown>): { category: NotificationCategory; severity: NotificationSeverity; title: string; body: string } {
   const name = eventName.toLowerCase();
   if (name === 'task.created' || name === 'task.assigned') return { category: 'assignment', severity: 'medium', title: 'Nova tarefa atribuída', body: String(payload.title ?? 'Uma tarefa foi atribuída a si.') };
   if (name === 'task.overdue') return { category: 'task', severity: 'high', title: 'Tarefa em atraso', body: String(payload.title ?? 'Uma tarefa ultrapassou o prazo.') };
@@ -44,7 +44,7 @@ function titleForEvent(eventName: string, payload: Record<string, unknown>): { c
   if (name === 'approval.rejected') return { category: 'approval', severity: 'high', title: 'Aprovação rejeitada', body: String(payload.title ?? 'Uma aprovação foi rejeitada.') };
   if (name === 'form.submitted') return { category: 'form', severity: 'medium', title: 'Novo formulário submetido', body: String(payload.title ?? 'Um formulário recebeu uma nova submissão.') };
   if (name === 'document.updated') return { category: 'document', severity: 'low', title: 'Documento atualizado', body: String(payload.title ?? 'Um documento foi atualizado.') };
-  if (name === 'workflow.failed') return { category: 'workflow', severity: 'critical', title: 'Workflow falhou', body: String(payload.error ?? payload.title ?? 'Uma execução de workflow falhou.') };
+  if (name === 'workflow.failed') return { category: 'alert', severity: 'critical', title: 'Workflow falhou', body: String(payload.error ?? payload.title ?? 'Uma execução de workflow falhou.') };
   if (name === 'decision.created' || name === 'decision.updated') return { category: 'decision', severity: 'medium', title: 'Decisão registada', body: String(payload.title ?? 'Uma decisão organizacional foi registada.') };
   if (name.endsWith('.alert') || name.startsWith('incident.')) return { category: 'alert', severity: 'critical', title: 'Alerta operacional', body: String(payload.message ?? payload.title ?? 'Um alerta operacional requer atenção.') };
   if (name === 'user.joined') return { category: 'system', severity: 'info', title: 'Novo membro na empresa', body: String(payload.displayName ?? payload.email ?? 'Um novo membro juntou-se à empresa.') };
@@ -63,7 +63,7 @@ function targetUsers(event: { companyId: string; actorId: string; eventName: str
 
 export async function createNotificationFromEvent(event: { eventId: string; companyId: string; actorId: string; eventName: string; entityType: string; entityId: string; payload: Record<string, unknown>; metadata?: Record<string, unknown> }): Promise<number> {
   const db = getAdminDb();
-  const descriptor = titleForEvent(event.eventName, event.payload);
+  const descriptor = describeNotificationEvent(event.eventName, event.payload);
   const membershipSnapshot = await db.collection('companies').doc(event.companyId).collection('members').where('status', '==', 'active').limit(500).get();
   const members = membershipSnapshot.docs.map((doc) => ({ id: doc.id, role: String(doc.data().role ?? '') }));
   const users = targetUsers(event, members);
@@ -102,11 +102,16 @@ export async function createNotificationFromEvent(event: { eventId: string; comp
 export async function listInbox(options: { limit?: number; onlyUnread?: boolean; category?: string; since?: Date } = {}) {
   const identity = await requireIdentity();
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
-  const snapshot = await getAdminDb().collection('notifications').doc(identity.uid).collection('items').where('companyId', '==', identity.companyId).orderBy('createdAt', 'desc').limit(limit).get();
+  const snapshot = await getAdminDb().collection('notifications').doc(identity.uid).collection('items').orderBy('createdAt', 'desc').limit(limit).get();
   let records = snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) })) as Array<Record<string, unknown>>;
+  records = records.filter((item) => item.companyId === identity.companyId);
   if (options.onlyUnread) records = records.filter((item) => item.read !== true);
   if (options.category) records = records.filter((item) => item.category === options.category);
-  if (options.since) records = records.filter((item) => String(item.createdAt ?? '') >= options.since!.toISOString());
+  if (options.since) records = records.filter((item) => {
+    const createdAt = item.createdAt;
+    const createdMillis = createdAt instanceof Timestamp ? createdAt.toMillis() : typeof createdAt === 'string' ? Date.parse(createdAt) : 0;
+    return createdMillis >= options.since!.getTime();
+  });
   return records;
 }
 
