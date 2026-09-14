@@ -32,6 +32,17 @@ test('Advanced Oryon primitives expose core accessibility semantics', () => {
   assert.match(system, /useReducedMotion/);
 });
 
+test('Canonical header uses the backend notification contract', () => {
+  const header = read('src/components/layout/header.tsx');
+  const implementation = read('src/components/layout/oryon-header-v4.tsx');
+  const route = read('src/app/api/notifications/route.ts');
+  assert.match(header, /oryon-header-v4/);
+  assert.match(implementation, /api\/notifications/);
+  assert.doesNotMatch(implementation, /const notificationItems/);
+  assert.match(route, /collection\('notifications'\)/);
+  assert.match(route, /unreadCount/);
+});
+
 test('Phase 4 visual regression suite covers the complete acceptance surface', () => {
   const spec = read('tests/e2e/oryon-phase4-visual.spec.ts');
   for (const route of [
