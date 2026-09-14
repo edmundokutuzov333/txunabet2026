@@ -5,10 +5,12 @@ import { MobileBottomNav, OryonShellProvider } from '@/components/layout/oryon-s
 import OryonConnectionStatus from '@/components/layout/oryon-connection-status';
 import WebMetrics from '@/components/observability/web-metrics';
 import { requireIdentity } from '@/server/authorization';
+import { ensureDemoData } from '@/server/services/demo-seed';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   try {
-    await requireIdentity();
+    const identity = await requireIdentity();
+    await ensureDemoData(identity);
   } catch {
     redirect('/login');
   }
