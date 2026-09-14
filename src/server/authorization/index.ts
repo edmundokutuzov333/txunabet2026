@@ -10,6 +10,10 @@ import { recordMetric } from '@/server/observability/metrics';
 
 export const SESSION_COOKIE = '__session';
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 5;
+const TEST_AUTH_COOKIE = '__oryon_test_auth';
+const TEST_AUTH_UID = process.env.ORYON_TEST_AUTH_UID || '6NF2GKox6KOzGcJskE4Ej6cleIE2';
+const TEST_AUTH_EMAIL = process.env.ORYON_TEST_AUTH_EMAIL || 'admin@txunabet.com';
+const TEST_AUTH_COMPANY_ID = process.env.ORYON_TEST_AUTH_COMPANY_ID || 'oryon-test-company';
 
 export interface AuthenticatedIdentity {
   uid: string;
@@ -21,8 +25,42 @@ export interface AuthenticatedIdentity {
   token: DecodedIdToken;
 }
 
+function isTestAuthEnabled(): boolean {
+  return process.env.ORYON_TEST_AUTH_BYPASS === 'true';
+}
+
+function testIdentity(): AuthenticatedIdentity {
+  const now = Math.floor(Date.now() / 1000);
+  const token = {
+    uid: TEST_AUTH_UID,
+    sub: TEST_AUTH_UID,
+    email: TEST_AUTH_EMAIL,
+    aud: process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || '',
+    iss: `https://securetoken.google.com/${process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || ''}`,
+    iat: now,
+    exp: now + SESSION_MAX_AGE_SECONDS,
+    auth_time: now,
+    firebase: { sign_in_second_factor: 'test' },
+  } as unknown as DecodedIdToken;
+
+  return {
+    uid: TEST_AUTH_UID,
+    email: TEST_AUTH_EMAIL,
+    companyId: TEST_AUTH_COMPANY_ID,
+    role: 'owner',
+    permissions: [],
+    departmentIds: [],
+    token,
+  };
+}
+
 export async function verifySessionCookie(): Promise<DecodedIdToken | null> {
   const cookieStore = await cookies();
+
+  if (isTestAuthEnabled() && cookieStore.get(TEST_AUTH_COOKIE)?.value === 'enabled') {
+    return testIdentity().token;
+  }
+
   const session = cookieStore.get(SESSION_COOKIE)?.value;
   if (!session) return null;
   try {
@@ -35,6 +73,13 @@ export async function verifySessionCookie(): Promise<DecodedIdToken | null> {
 }
 
 export async function requireIdentity(): Promise<AuthenticatedIdentity> {
+  if (isTestAuthEnabled()) {
+    const cookieStore = await cookies();
+    if (cookieStore.get(TEST_AUTH_COOKIE)?.value === 'enabled') {
+      return testIdentity();
+    }
+  }
+
   const token = await verifySessionCookie();
   if (!token) throw new Error('UNAUTHENTICATED');
 
