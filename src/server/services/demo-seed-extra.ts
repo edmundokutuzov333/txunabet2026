@@ -27,37 +27,34 @@ export async function ensureDemoDataExtra(identity: AuthenticatedIdentity) {
   const db = getAdminDb();
   const marker = db.collection('companies').doc(identity.companyId).collection('system').doc('demo-extra-seed');
   const current = await marker.get();
-  if (current.exists && Number(current.data()?.version) >= 4) return;
+  if (current.exists && Number(current.data()?.version) >= 6) return;
   const ts = FieldValue.serverTimestamp();
   const common = { companyId: identity.companyId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: ts, updatedAt: ts, status: 'active', version: 1 };
 
   for (const [collection, names] of Object.entries(catalog)) {
     await seed(db, collection, names.map((name, i) => {
       const row: Record<string, unknown> = { ...common, id: `demo-${collection}-${i + 1}`, description: `Registo operacional de ${name}.`, department: BET_DEPARTMENTS[i % BET_DEPARTMENTS.length][0] };
-      if (collection === 'module_knowledge_articles') row.title = name;
-      else row.name = name;
+      if (collection === 'module_knowledge_articles') row.title = name; else row.name = name;
       if (collection === 'module_integrations') { row.connected = true; row.health = i === 2 ? 'degraded' : 'healthy'; }
       if (collection === 'module_automations') row.active = true;
       return row;
     }));
   }
-
   await seed(db, 'module_cloud_files', Array.from({ length: 20 }, (_, i) => ({ ...common, id: `demo-cloud-${i + 1}`, name: ['Trading shift files','Finance close pack','Compliance evidence','Marketing creative','VIP reports','Security evidence'][i % 6], type: 'folder', ownerId: identity.uid, sharedWith: [], storagePath: `demo/folders/${i + 1}`, mimeType: 'application/x-directory', size: 0 })));
   await seed(db, 'capacity_allocations', Array.from({ length: 36 }, (_, i) => ({ ...common, id: `demo-capacity-${i + 1}`, userId: identity.uid, projectId: `demo-project-${(i % 12) + 1}`, weekStart: new Date(Date.now() - 86400000 * 2).toISOString().slice(0, 10), availableHours: 40, allocatedHours: 24 + (i % 14) })));
   await seed(db, 'time_entries', Array.from({ length: 36 }, (_, i) => ({ ...common, id: `demo-time-${i + 1}`, projectId: `demo-project-${(i % 12) + 1}`, taskId: `demo-task-${(i % 72) + 1}`, startedAt: new Date(Date.now() - 86400000 * (i % 8)).toISOString(), endedAt: new Date(Date.now() - 86400000 * (i % 8) + 3600000).toISOString(), minutes: 45 + (i % 4) * 15, note: 'Registo de trabalho operacional.' })));
   await seed(db, 'project_milestones', Array.from({ length: 18 }, (_, i) => ({ ...common, id: `demo-milestone-${i + 1}`, projectId: `demo-project-${(i % 12) + 1}`, title: ['Discovery complete','Trading rules approved','PSP UAT','Security sign-off','Go-live'][i % 5], varianceDays: (i % 7) - 2, dueDate: new Date(Date.now() + 86400000 * (i + 3)).toISOString() })));
   await seed(db, 'projects', Array.from({ length: 12 }, (_, i) => ({ id: `demo-project-${i + 1}`, departmentId: `demo-dept-${BET_DEPARTMENTS[i % BET_DEPARTMENTS.length][0]}` })));
-
   await seed(db, 'module_tasks', Array.from({ length: 12 }, (_, i) => ({ id: `demo-task-${i + 1}`, assignedTo: [identity.uid], ownerId: identity.uid, dueDate: new Date(Date.now() + (i % 5 === 0 ? -86400000 : i * 3600000)).toISOString() })));
-
   await seed(db, 'approvals', Array.from({ length: 14 }, (_, i) => ({ ...common, id: `demo-approval-${i + 1}`, title: ['Payout excepcional','Mudança de odds','Nova campanha','Fornecedor PSP','Regra AML','Acesso privilegiado','Comissão affiliate','Alteração de limite','Release produção','KYC exception','Refund de alto valor','Nova automação','Contrato comercial','Risk override'][i], description: 'Pedido submetido para revisão interna e auditoria.', state: i % 5 === 0 ? 'APPROVED' : i % 4 === 0 ? 'CHANGES_REQUESTED' : 'PENDING', status: i % 5 === 0 ? 'approved' : i % 4 === 0 ? 'changes_requested' : 'pending', mode: i % 3 === 0 ? 'sequential' : 'single', approverId: identity.uid, requesterId: identity.uid, entityType: ['payment','trading','campaign','compliance','security'][i % 5], entityId: `demo-entity-${i + 1}`, dueDate: new Date(Date.now() + 86400000 * ((i % 5) + 1)).toISOString(), steps: [{ id: `step-${i + 1}`, approverId: identity.uid, status: i % 5 === 0 ? 'APPROVED' : 'PENDING' }] })));
-
+  await seed(db, 'integration_connections', [
+    ['Google Workspace','google-workspace','connected','ops@txunabet.com'], ['Google Calendar','google-calendar','connected','ops@txunabet.com'], ['Gmail','gmail','connected','ops@txunabet.com'], ['Google Drive','google-drive','connected','ops@txunabet.com'], ['Microsoft 365','microsoft-365','connected','it@txunabet.com'], ['Slack','slack','connected','alerts@txunabet.com'], ['Zoom','zoom','connected','meetings@txunabet.com'], ['GitHub','github','connected','dev@txunabet.com'], ['Dropbox','dropbox','error',null],
+  ].map(([label, provider, state, accountEmail], i) => ({ id: `demo-connection-${i + 1}`, companyId: identity.companyId, provider, label, state, accountEmail, scope: 'demo', expiresAt: null, createdBy: identity.uid, updatedBy: identity.uid, createdAt: ts, updatedAt: ts, lastSyncAt: new Date(Date.now() - i * 3600000), lastError: state === 'error' ? 'Reautenticação necessária.' : null })));
+  await seed(db, 'integration_sync_jobs', Array.from({ length: 18 }, (_, i) => ({ ...common, id: `demo-sync-${i + 1}`, connectionId: `demo-connection-${(i % 9) + 1}`, kind: 'incremental', status: i % 11 === 0 ? 'failed' : i % 4 === 0 ? 'pending' : 'completed', attempts: i % 3, maxAttempts: 8, createdAt: new Date(Date.now() - i * 3600000), updatedAt: new Date(Date.now() - i * 1800000) })));
+  await seed(db, 'integration_webhooks', Array.from({ length: 8 }, (_, i) => ({ ...common, id: `demo-webhook-${i + 1}`, provider: ['slack','github','google-calendar','external-api'][i % 4], connectionId: `demo-connection-${(i % 8) + 1}`, endpoint: 'https://example.invalid/webhook', state: 'active', events: ['updated','created'], lastDeliveryAt: new Date(Date.now() - i * 7200000), lastError: i === 5 ? 'Delivery timeout.' : null })));
   const notifications = db.collection('notifications').doc(identity.uid).collection('items');
   const batch = db.batch();
-  for (let i = 0; i < 20; i += 1) {
-    batch.set(notifications.doc(`demo-inbox-${i + 1}`), { id: `demo-inbox-${i + 1}`, companyId: identity.companyId, userId: identity.uid, category: ['task','approval','alert','mention','request'][i % 5], severity: ['info','medium','high','critical'][i % 4], title: ['Nova tarefa crítica','Aprovação pendente','Alerta operacional','Nova menção no Trading','Solicitação de Finance'][i % 5], body: ['Rever exposição pré-live','Payout aguarda decisão','PSP apresenta degradação de 2 minutos','Foste mencionado na revisão de trading','Reconciliação aguarda confirmação'][i % 5], entityType: ['task','approval','incident','trading','payment'][i % 5], entityId: `demo-entity-${i + 1}`, actionUrl: '/dashboard/inbox', read: i > 8, channels: ['in-app'], createdAt: new Date(Date.now() - i * 3600000) }, { merge: true });
-  }
+  for (let i = 0; i < 20; i += 1) batch.set(notifications.doc(`demo-inbox-${i + 1}`), { id: `demo-inbox-${i + 1}`, companyId: identity.companyId, userId: identity.uid, category: ['task','approval','alert','mention','request'][i % 5], severity: ['info','medium','high','critical'][i % 4], title: ['Nova tarefa crítica','Aprovação pendente','Alerta operacional','Nova menção no Trading','Solicitação de Finance'][i % 5], body: ['Rever exposição pré-live','Payout aguarda decisão','PSP apresenta degradação de 2 minutos','Foste mencionado na revisão de trading','Reconciliação aguarda confirmação'][i % 5], entityType: ['task','approval','incident','trading','payment'][i % 5], entityId: `demo-entity-${i + 1}`, actionUrl: '/dashboard/inbox', read: i > 8, channels: ['in-app'], createdAt: new Date(Date.now() - i * 3600000) }, { merge: true });
   await batch.commit();
-
-  await marker.set({ version: 4, seededAt: ts, seededBy: identity.uid, note: 'enriched command center and approval queue' }, { merge: true });
+  await marker.set({ version: 6, seededAt: ts, seededBy: identity.uid, note: 'complete enterprise and betting demo dataset' }, { merge: true });
 }
