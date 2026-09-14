@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: oryon-production-deploy
@@ -20,7 +21,7 @@ env:
 
 jobs:
   deploy:
-    name: Deploy to Firebase App Hosting
+    name: Deploy Oryon production stack
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -35,17 +36,23 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test:unit
+      - run: npm run test:rules
       - run: npm run build
+      - name: Install and build Firebase Functions
+        working-directory: functions
+        run: |
+          npm ci
+          npm run build
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
-      - name: Deploy App Hosting
+      - name: Deploy Firestore, Functions and App Hosting
         env:
           PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
         run: |
           set -euo pipefail
           test -n "$PROJECT_ID"
-          npx --yes firebase-tools@latest deploy --only apphosting --project "$PROJECT_ID"
+          npx --yes firebase-tools@latest deploy --only firestore:rules,firestore:indexes,functions,apphosting --project "$PROJECT_ID" --non-interactive
