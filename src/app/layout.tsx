@@ -7,6 +7,7 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
 import AuthGuard from '@/components/auth-guard';
 import ArtisticBackground from '@/components/layout/artistic-background';
+import QueryProvider from '@/components/query-provider';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
@@ -30,12 +31,14 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <FirebaseClientProvider>
-            <AuthGuard>
-              {children}
-            </AuthGuard>
-            <Toaster />
-          </FirebaseClientProvider>
+          <QueryProvider>
+            <FirebaseClientProvider>
+              <AuthGuard>
+                {children}
+              </AuthGuard>
+              <Toaster />
+            </FirebaseClientProvider>
+          </QueryProvider>
         </ThemeProvider>
       </body>
     </html>
