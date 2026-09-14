@@ -22,6 +22,7 @@ export const WorkflowControlSchema = z.object({
   active: z.boolean().default(true),
   executionTimeoutMs: z.number().int().min(1000).max(15 * 60 * 1000).default(120000),
   retryPolicy: z.object({ maxAttempts: z.number().int().min(1).max(20).default(5), backoffMs: z.number().int().min(1000).max(15 * 60 * 1000).default(30000) }).default({ maxAttempts: 5, backoffMs: 30000 }),
+  graph: z.record(z.unknown()).optional(),
   steps: z.array(WorkflowStepControlSchema).min(1).max(100),
 });
 
