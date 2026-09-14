@@ -1,6 +1,6 @@
 
 'use client';
-import { GaugeCircle, ListTodo, Video, Calendar, Users, Cloud, Plus, Megaphone, LineChart, User, Server, Settings as SettingsIcon, Shield, ShieldCheck, MessagesSquare, Book, BarChart3, PieChart, Workflow, Bot, Plug, FileText, UserCog, MoreVertical, Briefcase, Radio, Target, Gamepad2, Sparkles, Inbox as InboxIcon, FormInput, Activity, Search, Network, PencilRuler, Film } from 'lucide-react';
+import { GaugeCircle, ListTodo, Video, Calendar, Users, Cloud, Plus, Megaphone, LineChart, User, Server, Settings as SettingsIcon, Shield, ShieldCheck, MessagesSquare, Book, BarChart3, PieChart, Workflow, Bot, Plug, FileText, UserCog, MoreVertical, Briefcase, Radio, Target, Gamepad2, Sparkles, Inbox as InboxIcon, FormInput, Activity, Search, PencilRuler } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { departments, menuItems, users as mockUsers } from '@/lib/data';
