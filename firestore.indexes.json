@@ -12,6 +12,7 @@
     { "collectionGroup": "versions", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "version", "order": "DESCENDING" } ] },
     { "collectionGroup": "comments", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "createdAt", "order": "ASCENDING" } ] },
     { "collectionGroup": "module_automations", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "active", "order": "ASCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" } ] },
+    { "collectionGroup": "module_automations", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "workflowId", "order": "ASCENDING" } ] },
     { "collectionGroup": "automation_jobs", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" } ] },
     { "collectionGroup": "entity_relationships", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "sourceType", "order": "ASCENDING" }, { "fieldPath": "sourceId", "order": "ASCENDING" } ] },
     { "collectionGroup": "entity_relationships", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "targetType", "order": "ASCENDING" }, { "fieldPath": "targetId", "order": "ASCENDING" } ] },
