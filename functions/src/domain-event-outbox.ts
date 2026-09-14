@@ -12,6 +12,88 @@ const RETRY_MS = 30 * 1000;
 
 function now() { return admin.firestore.Timestamp.now(); }
 
+function notificationTargets(event: Record<string, unknown>, members: Array<{ id: string; role: string }>): string[] {
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {};
+  const directKeys = ['userId', 'assigneeId', 'assignedTo', 'ownerId', 'requesterId', 'approverId', 'recipientId'];
+  const direct = directKeys.flatMap((key) => typeof payload[key] === 'string' ? [String(payload[key])] : []).filter((id) => id && id !== String(event.actorId ?? ''));
+  if (direct.length) return Array.from(new Set(direct));
+  const name = String(event.eventName ?? '');
+  if (name === 'workflow.failed' || name.startsWith('incident.') || name.endsWith('.alert')) return members.filter((member) => ['owner', 'admin', 'manager'].includes(member.role)).map((member) => member.id);
+  return [];
+}
+
+function notificationDescriptor(event: Record<string, unknown>) {
+  const name = String(event.eventName ?? '');
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {};
+  if (name === 'task.created' || name === 'task.assigned') return { category: 'assignment', severity: 'medium', title: 'Nova tarefa atribuída', body: String(payload.title ?? 'Uma tarefa foi atribuída a si.') };
+  if (name === 'task.overdue') return { category: 'task', severity: 'high', title: 'Tarefa em atraso', body: String(payload.title ?? 'Uma tarefa ultrapassou o prazo.') };
+  if (name === 'approval.requested') return { category: 'approval', severity: 'high', title: 'Aprovação pendente', body: String(payload.title ?? 'Uma aprovação requer a sua atenção.') };
+  if (name === 'approval.approved') return { category: 'approval', severity: 'medium', title: 'Aprovação concluída', body: String(payload.title ?? 'Uma aprovação foi aprovada.') };
+  if (name === 'approval.rejected') return { category: 'approval', severity: 'high', title: 'Aprovação rejeitada', body: String(payload.title ?? 'Uma aprovação foi rejeitada.') };
+  if (name === 'form.submitted') return { category: 'form', severity: 'medium', title: 'Novo formulário submetido', body: String(payload.title ?? 'Um formulário recebeu uma nova submissão.') };
+  if (name === 'document.updated') return { category: 'document', severity: 'low', title: 'Documento atualizado', body: String(payload.title ?? 'Um documento foi atualizado.') };
+  if (name === 'workflow.failed') return { category: 'workflow', severity: 'critical', title: 'Workflow falhou', body: String(payload.error ?? payload.title ?? 'Uma execução de workflow falhou.') };
+  if (name === 'decision.created' || name === 'decision.updated') return { category: 'decision', severity: 'medium', title: 'Decisão registada', body: String(payload.title ?? 'Uma decisão organizacional foi registada.') };
+  if (name.startsWith('incident.') || name.endsWith('.alert')) return { category: 'alert', severity: 'critical', title: 'Alerta operacional', body: String(payload.message ?? payload.title ?? 'Um alerta operacional requer atenção.') };
+  if (name === 'user.joined') return { category: 'system', severity: 'info', title: 'Novo membro na empresa', body: String(payload.displayName ?? payload.email ?? 'Um novo membro juntou-se à empresa.') };
+  return { category: 'system', severity: 'info', title: 'Nova atividade', body: String(payload.title ?? name) };
+}
+
+async function materializeEvent(event: Record<string, unknown>): Promise<void> {
+  const companyId = String(event.companyId ?? '');
+  const eventId = String(event.eventId ?? '');
+  if (!companyId || !eventId) throw new Error('INVALID_OUTBOX_EVENT');
+  const [membersSnapshot] = await Promise.all([
+    db.collection('companies').doc(companyId).collection('members').where('status', '==', 'active').limit(500).get(),
+  ]);
+  const members = membersSnapshot.docs.map((doc) => ({ id: doc.id, role: String(doc.data().role ?? '') }));
+  const descriptor = notificationDescriptor(event);
+  const targets = notificationTargets(event, members);
+  for (const userId of targets) {
+    const notificationId = `${eventId}_${userId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 700);
+    const notificationRef = db.collection('notifications').doc(userId).collection('items').doc(notificationId);
+    await db.runTransaction(async (transaction) => {
+      if (!(await transaction.get(notificationRef)).exists) {
+        transaction.create(notificationRef, {
+          id: notificationId,
+          companyId,
+          userId,
+          category: descriptor.category,
+          severity: descriptor.severity,
+          title: descriptor.title,
+          body: descriptor.body,
+          entityType: String(event.entityType ?? 'activity'),
+          entityId: String(event.entityId ?? ''),
+          eventName: String(event.eventName ?? ''),
+          actionUrl: `/dashboard/inbox`,
+          read: false,
+          channels: ['in-app'],
+          createdAt: now(),
+          metadata: { sourceEventId: eventId },
+        });
+      }
+    });
+  }
+
+  const activityRef = db.collection('activities').doc(eventId);
+  await db.runTransaction(async (transaction) => {
+    if ((await transaction.get(activityRef)).exists) return;
+    transaction.create(activityRef, {
+      id: eventId,
+      companyId,
+      actorId: String(event.actorId ?? ''),
+      eventName: String(event.eventName ?? ''),
+      entityType: String(event.entityType ?? 'activity'),
+      entityId: String(event.entityId ?? ''),
+      payload: event.payload ?? {},
+      metadata: event.metadata ?? {},
+      createdAt: event.occurredAt ?? now(),
+      status: 'active',
+      version: 1,
+    });
+  });
+}
+
 async function enqueueAutomationJobs(event: Record<string, unknown>): Promise<number> {
   const companyId = String(event.companyId ?? '');
   const eventName = String(event.eventName ?? '');
@@ -22,11 +104,7 @@ async function enqueueAutomationJobs(event: Record<string, unknown>): Promise<nu
   let lastId: string | undefined;
   let created = 0;
   while (true) {
-    let query = db.collection('module_automations')
-      .where('companyId', '==', companyId)
-      .where('active', '==', true)
-      .orderBy(admin.firestore.FieldPath.documentId())
-      .limit(500);
+    let query = db.collection('module_automations').where('companyId', '==', companyId).where('active', '==', true).orderBy(admin.firestore.FieldPath.documentId()).limit(500);
     if (lastId) query = query.startAfter(lastId);
     const automations = await query.get();
     for (const automation of automations.docs) {
@@ -35,8 +113,7 @@ async function enqueueAutomationJobs(event: Record<string, unknown>): Promise<nu
       if (!trigger || trigger.type !== 'event' || trigger.eventName !== eventName) continue;
       const filter = trigger.filter;
       if (filter && typeof filter === 'object' && !Array.isArray(filter)) {
-        const matches = Object.entries(filter as Record<string, unknown>).every(([key, expected]) => payload[key] === expected);
-        if (!matches) continue;
+        if (!Object.entries(filter as Record<string, unknown>).every(([key, expected]) => payload[key] === expected)) continue;
       }
       const workflowId = String(data.workflowId ?? '');
       if (!workflowId) continue;
@@ -47,22 +124,7 @@ async function enqueueAutomationJobs(event: Record<string, unknown>): Promise<nu
       const jobRef = db.collection('automation_jobs').doc(idempotencyKey);
       await db.runTransaction(async (transaction) => {
         if ((await transaction.get(jobRef)).exists) return;
-        transaction.create(jobRef, {
-          id: jobRef.id,
-          companyId,
-          automationId: automation.id,
-          workflowId,
-          workflowVersion,
-          trigger: 'event',
-          payload: { ...payload, eventName, eventId },
-          idempotencyKey,
-          status: 'pending',
-          attempts: 0,
-          maxAttempts: 5,
-          createdAt: now(),
-          updatedAt: now(),
-          nextAttemptAt: now(),
-        });
+        transaction.create(jobRef, { id: jobRef.id, companyId, automationId: automation.id, workflowId, workflowVersion, trigger: 'event', payload: { ...payload, eventName, eventId }, idempotencyKey, status: 'pending', attempts: 0, maxAttempts: 5, createdAt: now(), updatedAt: now(), nextAttemptAt: now() });
         created += 1;
       });
     }
@@ -82,27 +144,20 @@ async function processOne(doc: admin.firestore.QueryDocumentSnapshot): Promise<v
     const nextAttemptAt = data.nextAttemptAt instanceof admin.firestore.Timestamp ? data.nextAttemptAt.toMillis() : 0;
     if (nextAttemptAt > Date.now()) return null;
     const attempts = Number(data.attempts ?? 0) + 1;
-    transaction.update(ref, {
-      status: 'processing',
-      attempts,
-      leaseUntil: admin.firestore.Timestamp.fromMillis(Date.now() + LEASE_MS),
-      updatedAt: now(),
-    });
+    transaction.update(ref, { status: 'processing', attempts, leaseUntil: admin.firestore.Timestamp.fromMillis(Date.now() + LEASE_MS), updatedAt: now() });
     return { ...data, id: current.id, attempts } as Record<string, unknown>;
   });
   if (!claimed) return;
 
   try {
+    await materializeEvent(claimed);
     await enqueueAutomationJobs(claimed);
     await ref.update({ status: 'published', publishedAt: now(), leaseUntil: admin.firestore.FieldValue.delete(), updatedAt: now(), lastError: admin.firestore.FieldValue.delete() });
   } catch (error) {
     const attempts = Number(claimed.attempts ?? 1);
     const message = error instanceof Error ? error.message : 'OUTBOX_DISPATCH_FAILED';
-    if (attempts >= MAX_ATTEMPTS) {
-      await ref.update({ status: 'failed', leaseUntil: admin.firestore.FieldValue.delete(), lastError: message, updatedAt: now(), failedAt: now() });
-    } else {
-      await ref.update({ status: 'pending', leaseUntil: admin.firestore.FieldValue.delete(), lastError: message, nextAttemptAt: admin.firestore.Timestamp.fromMillis(Date.now() + Math.min(15 * 60 * 1000, RETRY_MS * (2 ** (attempts - 1)))), updatedAt: now() });
-    }
+    if (attempts >= MAX_ATTEMPTS) await ref.update({ status: 'failed', leaseUntil: admin.firestore.FieldValue.delete(), lastError: message, updatedAt: now(), failedAt: now() });
+    else await ref.update({ status: 'pending', leaseUntil: admin.firestore.FieldValue.delete(), lastError: message, nextAttemptAt: admin.firestore.Timestamp.fromMillis(Date.now() + Math.min(15 * 60 * 1000, RETRY_MS * (2 ** (attempts - 1)))), updatedAt: now() });
     logger.error('Domain event outbox processing failed', { eventId: doc.id, attempts, error: message });
   }
 }
