@@ -1,8 +1,13 @@
-import 'server-only';
+import {
+  calculateCapacity,
+  calculateGoalProgress,
+  calculateProjectHealth,
+  type ProjectHealth,
+  type ProjectHealthMetrics,
+} from './project-health-core';
 
-import { calculateProjectHealth, type ProjectHealth } from './project-os';
-
-export type ProjectHealthMetrics = Parameters<typeof calculateProjectHealth>[0];
+export { calculateCapacity, calculateGoalProgress, calculateProjectHealth } from './project-health-core';
+export type { ProjectHealth, ProjectHealthMetrics } from './project-health-core';
 
 export function evaluateProjectHealth(metrics: ProjectHealthMetrics): { health: ProjectHealth; score: number; reasons: string[] } {
   return calculateProjectHealth(metrics);
