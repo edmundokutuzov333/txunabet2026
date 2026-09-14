@@ -1,2 +1,2 @@
-export { Header } from './oryon-shell';
-export { Header as default } from './oryon-shell';
+export { Header } from './oryon-shell-v2';
+export { Header as default } from './oryon-shell-v2';
