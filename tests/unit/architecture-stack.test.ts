@@ -66,3 +66,9 @@ test('direct messages route stays client-only and never calls client auth from a
   assert.doesNotMatch(file,/getCurrentUser\s*\(/);
   assert.doesNotMatch(file,/from ['"]@\/lib\/data['"]/);
 });
+
+test('server-only guards are present on server service modules',()=>{
+  for(const relative of ['src/server/services/ai-core.ts','src/server/services/app-platform.ts','src/server/services/security-hardening.ts']) {
+    assert.match(read(relative),/^import ['"]server-only['"];/,`missing server-only guard: ${relative}`);
+  }
+});
