@@ -7,6 +7,7 @@ const routes = [
   '/dashboard/search',
   '/dashboard/tasks',
   '/dashboard/projects',
+  '/dashboard/goals',
   '/dashboard/chat/general',
   '/dashboard/documents',
   '/dashboard/cloud',
