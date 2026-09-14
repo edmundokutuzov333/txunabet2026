@@ -34,18 +34,14 @@ service cloud.firestore {
           || d.sharedCompany == true
           || d.sharedDepartmentIds.hasAny(get(/databases/$(database)/documents/companies/$(d.companyId)/members/$(request.auth.uid)).data.departmentIds));
     }
-    function documentEditAccess(documentId) {
-      let d = get(/databases/$(database)/documents/documents/$(documentId)).data;
-      return documentAccess(documentId) && (d.ownerId == request.auth.uid || request.auth.uid in d.editorIds);
-    }
-    function hasPermission(companyId, permission) {
-      return isCompanyMember(companyId)
-        && (isCompanyAdmin(companyId) || permission in get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.permissions);
-    }
     function immutableIdentityFieldsUnchanged() {
       return request.resource.data.uid == resource.data.uid
         && request.resource.data.email == resource.data.email
         && request.resource.data.createdAt == resource.data.createdAt;
+    }
+    function hasPermission(companyId, permission) {
+      return isCompanyMember(companyId)
+        && (isCompanyAdmin(companyId) || permission in get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid)).data.permissions);
     }
 
     match /companies/{companyId} {
@@ -62,7 +58,6 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
     }
-
     match /departments/{departmentId} {
       allow get: if signedIn() && resource.data.companyId != null && isCompanyMember(resource.data.companyId) && (isDepartmentMember(departmentId) || isCompanyAdmin(resource.data.companyId));
       allow list: if false;
@@ -73,7 +68,6 @@ service cloud.firestore {
         allow create, update, delete: if signedIn() && isCompanyAdmin(get(/databases/$(database)/documents/departments/$(departmentId)).data.companyId);
       }
     }
-
     match /users/{userId} {
       allow get: if signedIn() && request.auth.uid == userId;
       allow list: if false;
@@ -81,7 +75,6 @@ service cloud.firestore {
       allow update: if signedIn() && request.auth.uid == userId && immutableIdentityFieldsUnchanged();
       allow delete: if false;
     }
-
     match /conversations/{conversationId} {
       allow get: if conversationAccess(conversationId);
       allow list: if false;
@@ -101,78 +94,46 @@ service cloud.firestore {
         allow write: if conversationAccess(conversationId) && request.auth.uid == userId;
       }
     }
-
     match /presence/{userId} {
       allow get: if signedIn() && request.auth.uid == userId;
       allow list: if false;
       allow create, update, delete: if signedIn() && request.auth.uid == userId && isCompanyMember(request.resource.data.companyId);
     }
-
     match /notifications/{userId}/items/{notificationId} {
-      allow get, list: if signedIn() && request.auth.uid == userId;
+      allow get, list: if signedIn() && request.auth.uid == userId && isCompanyMember(resource.data.companyId);
       allow update: if signedIn() && request.auth.uid == userId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
       allow create, delete: if false;
     }
-
+    match /notification_preferences/{userId} {
+      allow get: if signedIn() && request.auth.uid == userId;
+      allow list: if false;
+      allow create, update: if signedIn() && request.auth.uid == userId;
+      allow delete: if signedIn() && request.auth.uid == userId;
+    }
+    match /activities/{activityId} {
+      allow read, list: if signedIn() && isCompanyMember(resource.data.companyId);
+      allow write: if false;
+    }
     match /documents/{documentId} {
       allow get: if documentAccess(documentId);
       allow list: if false;
       allow create, update, delete: if false;
-      match /versions/{versionId} {
-        allow get, list: if documentAccess(documentId);
-        allow create, update, delete: if false;
-      }
-      match /comments/{commentId} {
-        allow get, list: if documentAccess(documentId);
-        allow create, update, delete: if false;
-      }
+      match /versions/{versionId} { allow get, list: if documentAccess(documentId); allow create, update, delete: if false; }
+      match /comments/{commentId} { allow get, list: if documentAccess(documentId); allow create, update, delete: if false; }
     }
-
     match /docs/{docId} {
       allow get, list: if signedIn() && isCompanyMember(resource.data.companyId) && (resource.data.ownerId == request.auth.uid || request.auth.uid in resource.data.viewerIds || request.auth.uid in resource.data.editorIds);
       allow create: if signedIn() && isCompanyMember(request.resource.data.companyId) && request.resource.data.ownerId == request.auth.uid;
       allow update: if signedIn() && isCompanyMember(resource.data.companyId) && (resource.data.ownerId == request.auth.uid || request.auth.uid in resource.data.editorIds);
       allow delete: if signedIn() && isCompanyMember(resource.data.companyId) && resource.data.ownerId == request.auth.uid;
     }
-
-    match /transactions/{txId} {
-      allow get: if signedIn() && resource.data.userId == request.auth.uid;
-      allow list: if false;
-      allow create, update, delete: if false;
-    }
-
-    match /tasks/{taskId} {
-      allow get, list: if signedIn() && isCompanyMember(resource.data.companyId);
-      allow create: if signedIn() && isCompanyMember(request.resource.data.companyId);
-      allow update: if signedIn() && isCompanyMember(resource.data.companyId);
-      allow delete: if signedIn() && (isCompanyAdmin(resource.data.companyId) || resource.data.createdBy == request.auth.uid);
-    }
-
-    match /campaigns/{campaignId} {
-      allow read: if signedIn() && isCompanyMember(resource.data.companyId);
-      allow write: if isCompanyAdmin(resource.data.companyId);
-    }
-
-    match /game_operations/{operationId} {
-      allow read: if signedIn() && isCompanyMember(resource.data.companyId);
-      allow write: if isCompanyAdmin(resource.data.companyId);
-    }
-
-    // Universal Oryon foundation collections are intentionally server-authoritative.
-    // All mutations go through authenticated API/services; the client never writes these
-    // collections directly. Read access for foundation internals is also server-mediated.
-    match /entity_relationships/{relationshipId} {
-      allow read, write: if false;
-    }
-    match /event_outbox/{eventId} {
-      allow read, write: if false;
-    }
-    match /automation_step_receipts/{receiptId} {
-      allow read, write: if false;
-    }
-
-    match /system_configs/global {
-      allow read, write: if false;
-    }
+    match /transactions/{txId} { allow get: if signedIn() && resource.data.userId == request.auth.uid; allow list: if false; allow create, update, delete: if false; }
+    match /tasks/{taskId} { allow get, list: if signedIn() && isCompanyMember(resource.data.companyId); allow create: if signedIn() && isCompanyMember(request.resource.data.companyId); allow update: if signedIn() && isCompanyMember(resource.data.companyId); allow delete: if signedIn() && (isCompanyAdmin(resource.data.companyId) || resource.data.createdBy == request.auth.uid); }
+    match /campaigns/{campaignId} { allow read: if signedIn() && isCompanyMember(resource.data.companyId); allow write: if isCompanyAdmin(resource.data.companyId); }
+    match /game_operations/{operationId} { allow read: if signedIn() && isCompanyMember(resource.data.companyId); allow write: if isCompanyAdmin(resource.data.companyId); }
+    match /entity_relationships/{relationshipId} { allow read, write: if false; }
+    match /event_outbox/{eventId} { allow read, write: if false; }
+    match /automation_step_receipts/{receiptId} { allow read, write: if false; }
+    match /system_configs/global { allow read, write: if false; }
   }
 }
