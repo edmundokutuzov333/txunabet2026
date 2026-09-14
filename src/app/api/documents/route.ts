@@ -15,9 +15,14 @@ function errorResponse(error: unknown) {
   return NextResponse.json({ error: error instanceof Error ? error.message : 'REQUEST_FAILED' }, { status });
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    return NextResponse.json({ documents: await listDocuments() });
+    const query = request.nextUrl.searchParams.get('q')?.trim().toLowerCase() ?? '';
+    const documents = await listDocuments();
+    const filtered = query
+      ? documents.filter((document) => JSON.stringify(document).toLowerCase().includes(query))
+      : documents;
+    return NextResponse.json({ documents: filtered });
   } catch (error) {
     return errorResponse(error);
   }
