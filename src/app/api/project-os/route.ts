@@ -15,18 +15,21 @@ import {
   updateGoalProgress,
   updateProjectBudget,
 } from '@/server/services/project-os';
+import { getWorkspaceOperationalMap } from '@/server/services/workspace-os';
 
 function errorResponse(error: unknown) {
   if (isAuthorizationError(error)) return NextResponse.json({ error: 'Acesso não autorizado.' }, { status: 403 });
   const code = error instanceof Error ? error.message : 'INTERNAL_ERROR';
-  const status = ['INVALID_WORKSPACE', 'INVALID_PROJECT', 'INVALID_GOAL', 'INVALID_KEY_RESULT', 'INVALID_ALLOCATION', 'INVALID_TIME_ENTRY', 'TIME_ENTRY_DURATION_REQUIRED', 'TIMER_ALREADY_RUNNING', 'TIMER_NOT_RUNNING', 'INVALID_BUDGET'].includes(code) ? 400 : ['WORKSPACE_NOT_FOUND', 'PROJECT_NOT_FOUND', 'GOAL_NOT_FOUND', 'PARENT_GOAL_NOT_FOUND', 'MEMBER_NOT_FOUND'].includes(code) ? 404 : 500;
-  return NextResponse.json({ error: code }, { status });
+  const badRequest = ['INVALID_WORKSPACE','INVALID_PROJECT','INVALID_GOAL','INVALID_KEY_RESULT','INVALID_ALLOCATION','INVALID_TIME_ENTRY','TIME_ENTRY_DURATION_REQUIRED','TIMER_ALREADY_RUNNING','TIMER_NOT_RUNNING','INVALID_BUDGET'];
+  const notFound = ['WORKSPACE_NOT_FOUND','PROJECT_NOT_FOUND','GOAL_NOT_FOUND','PARENT_GOAL_NOT_FOUND','MEMBER_NOT_FOUND'];
+  return NextResponse.json({ error: code }, { status: badRequest.includes(code) ? 400 : notFound.includes(code) ? 404 : 500 });
 }
 
 export async function GET(request: NextRequest) {
   try {
     const resource = request.nextUrl.searchParams.get('resource') ?? 'workspaces';
     if (resource === 'workspaces') return NextResponse.json({ data: await listWorkspaces() });
+    if (resource === 'workspace-map') return NextResponse.json({ data: await getWorkspaceOperationalMap() });
     if (resource === 'capacity') return NextResponse.json({ data: await getCapacity(request.nextUrl.searchParams.get('weekStart') ?? undefined) });
     if (resource === 'project') {
       const projectId = request.nextUrl.searchParams.get('projectId');
