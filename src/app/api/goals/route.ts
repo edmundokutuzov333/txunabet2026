@@ -24,6 +24,8 @@ const goalCreateSchema = z.object({
   ownerId: z.string().trim().max(180).optional(),
 });
 
+type GoalRecord = Record<string, unknown> & { id: string; updatedAt?: unknown };
+
 function errorResponse(error: unknown) {
   if (isAuthorizationError(error)) return NextResponse.json({ error: 'Acesso não autorizado.' }, { status: 403 });
   const message = error instanceof Error ? error.message : 'INTERNAL_ERROR';
@@ -35,9 +37,8 @@ export async function GET() {
   try {
     const identity = await requirePermission(PERMISSIONS.OPERATIONS_READ);
     const snapshot = await getAdminDb().collection('goals').where('companyId', '==', identity.companyId).limit(200).get();
-    const data = snapshot.docs
-      .map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }))
-      .sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
+    const data: GoalRecord[] = snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
+    data.sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
     return NextResponse.json({ data });
   } catch (error) {
     return errorResponse(error);
