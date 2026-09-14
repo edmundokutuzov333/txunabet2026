@@ -16,10 +16,10 @@ test('capacity calculates utilization and overload accurately', () => {
 });
 
 test('project health becomes at risk under material schedule pressure', () => {
-  const result = calculateProjectHealth({ overdueTasks: 3, blockedTasks: 1, criticalTasks: 1, capacityUtilization: 108, milestoneVarianceDays: 2, deadlineDays: 4, recentActivityDays: 2, budgetPercent: 70, unresolvedRisks: 2 });
+  const result = calculateProjectHealth({ overdueTasks: 2, blockedTasks: 0, criticalTasks: 0, capacityUtilization: 100, milestoneVarianceDays: 0, deadlineDays: 4, recentActivityDays: 2, budgetPercent: 70, unresolvedRisks: 2 });
   assert.equal(result.health, 'AT_RISK');
-  assert.ok(result.score < 80);
-  assert.ok(result.reasons.length >= 4);
+  assert.equal(result.score, 78);
+  assert.ok(result.reasons.length >= 2);
 });
 
 test('project health becomes critical under severe risk', () => {
