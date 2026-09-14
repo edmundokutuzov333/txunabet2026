@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import AppSidebar from '@/components/layout/app-sidebar';
 import Header from '@/components/layout/header';
-import { MobileBottomNav, OryonShellProvider } from '@/components/layout/oryon-shell';
+import { MobileBottomNav, OryonShellProvider } from '@/components/layout/oryon-shell-v2';
 import WebMetrics from '@/components/observability/web-metrics';
 import { requireIdentity } from '@/server/authorization';
 
