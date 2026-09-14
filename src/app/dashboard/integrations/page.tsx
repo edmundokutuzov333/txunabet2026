@@ -1,5 +1,3 @@
-import { ProductionModuleView } from '@/components/modules/production-module-view';
+import IntegrationPlatformView from '@/components/enterprise/integration-platform-view';
 
-export default function IntegrationsPage() {
-  return <ProductionModuleView module="integrations" />;
-}
+export default function IntegrationsPage(){return <IntegrationPlatformView/>;}
