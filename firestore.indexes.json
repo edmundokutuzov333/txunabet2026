@@ -17,7 +17,8 @@
     { "collectionGroup": "entity_relationships", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "targetType", "order": "ASCENDING" }, { "fieldPath": "targetId", "order": "ASCENDING" } ] },
     { "collectionGroup": "event_outbox", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "nextAttemptAt", "order": "ASCENDING" } ] },
     { "collectionGroup": "event_outbox", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "nextAttemptAt", "order": "ASCENDING" } ] },
-    { "collectionGroup": "activities", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] }
+    { "collectionGroup": "activities", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "form_submissions", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "formId", "order": "ASCENDING" } ] }
   ],
   "fieldOverrides": []
 }
