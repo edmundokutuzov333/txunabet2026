@@ -19,7 +19,11 @@
     { "collectionGroup": "event_outbox", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "nextAttemptAt", "order": "ASCENDING" } ] },
     { "collectionGroup": "event_outbox", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "nextAttemptAt", "order": "ASCENDING" } ] },
     { "collectionGroup": "activities", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
-    { "collectionGroup": "form_submissions", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "formId", "order": "ASCENDING" } ] }
+    { "collectionGroup": "form_submissions", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "formId", "order": "ASCENDING" } ] },
+    { "collectionGroup": "whiteboards", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "module_clips", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "module_decisions", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "enterprise_search_index", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] }
   ],
   "fieldOverrides": []
 }
