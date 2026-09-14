@@ -18,7 +18,7 @@ test('required frontend stack is installed',()=>{
 });
 
 test('required backend and E2E stack is installed',()=>{
-  for(const name of ['firebase','firebase-admin','firebase-functions','@playwright/test']) assert.ok(deps[name],`missing dependency: ${name}`);
+  for(const name of ['firebase','firebase-admin','firebase-functions','@playwright/test','server-only']) assert.ok(deps[name],`missing dependency: ${name}`);
 });
 
 test('Genkit/Gemini boundary is centralized',()=>{
