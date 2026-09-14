@@ -1,5 +1,3 @@
-import { ProductionModuleView } from '@/components/modules/production-module-view';
+import MeetingIntelligenceView from '@/components/meetings/meeting-intelligence-view';
 
-export default function MeetingsPage() {
-  return <ProductionModuleView module="meetings" />;
-}
+export default function MeetingsPage() { return <MeetingIntelligenceView />; }
