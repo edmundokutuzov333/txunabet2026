@@ -1,5 +1,2 @@
-import ProjectOsView from '@/components/project-os/project-os-view';
-
-export default function ProjectsPage() {
-  return <ProjectOsView />;
-}
+import ProjectExperience from '@/components/core/project-experience';
+export default function ProjectsPage(){return <ProjectExperience/>}

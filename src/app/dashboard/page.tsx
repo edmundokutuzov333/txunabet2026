@@ -1,7 +1,2 @@
-'use client';
-
-import CommandCenterView from '@/components/command-center/command-center-view';
-
-export default function DashboardPage() {
-  return <CommandCenterView />;
-}
+import CommandCenterV3 from '@/components/command-center/command-center-v3';
+export default function DashboardPage(){return <CommandCenterV3/>}

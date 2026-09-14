@@ -1,5 +1,2 @@
-import { ProductionModuleView } from '@/components/modules/production-module-view';
-
-export default function TasksPage() {
-  return <ProductionModuleView module="tasks" />;
-}
+import TasksExperience from '@/components/core/tasks-experience';
+export default function TasksPage(){return <TasksExperience/>}

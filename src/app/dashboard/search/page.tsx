@@ -1,3 +1,2 @@
-import EnterpriseSearchView from '@/components/search/enterprise-search-view';
-
-export default function SearchPage() { return <EnterpriseSearchView />; }
+import KnowledgeHubExperience from '@/components/core/knowledge-hub-experience';
+export default function SearchPage(){return <KnowledgeHubExperience/>}
