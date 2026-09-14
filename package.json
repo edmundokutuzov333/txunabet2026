@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test:unit": "tsx --test tests/unit/*.test.ts",
+    "test:unit": "NODE_OPTIONS=--require=./tests/server-only-shim.cjs tsx --test tests/unit/*.test.ts",
     "test:integration": "tsx --test tests/integration/*.test.ts",
     "test:contract": "tsx --test tests/contract/*.test.ts",
     "test:rules": "tsx --test tests/rules/*.test.ts",
