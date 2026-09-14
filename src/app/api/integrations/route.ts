@@ -1,0 +1,8 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { getIntegrationCatalog, listConnections, disconnectConnection, enqueueSyncJob, createWebhook, integrationHealth, type IntegrationProvider } from '@/server/services/integration-platform';
+import { isAuthorizationError } from '@/server/authorization';
+const schema=z.object({action:z.enum(['disconnect','sync','webhook']),connectionId:z.string().regex(/^[A-Za-z0-9_-]{1,180}$/).optional(),provider:z.string().optional(),endpoint:z.string().optional()});
+function fail(e:unknown){if(isAuthorizationError(e))return NextResponse.json({error:'Acesso não autorizado.'},{status:403});const m=e instanceof Error?e.message:'INTEGRATION_FAILED';return NextResponse.json({error:m},{status:m.includes('MISSING')?503:400});}
+export async function GET(){try{return NextResponse.json({catalog:getIntegrationCatalog(),connections:await listConnections(),health:await integrationHealth()},{headers:{'Cache-Control':'no-store'}});}catch(e){return fail(e);}}
+export async function POST(req:NextRequest){try{const i=schema.parse(await req.json());if(i.action==='disconnect'){if(!i.connectionId)throw new Error('CONNECTION_REQUIRED');await disconnectConnection(i.connectionId);return NextResponse.json({ok:true});}if(i.action==='sync'){if(!i.connectionId)throw new Error('CONNECTION_REQUIRED');return NextResponse.json({jobId:await enqueueSyncJob(i.connectionId)});}if(i.action==='webhook'){if(!i.connectionId||!i.provider||!i.endpoint)throw new Error('WEBHOOK_INPUT_REQUIRED');return NextResponse.json({secret:await createWebhook(i.provider as IntegrationProvider,i.connectionId,i.endpoint)},{status:201});}throw new Error('INVALID_ACTION');}catch(e){return fail(e);}}
