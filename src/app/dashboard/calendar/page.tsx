@@ -1,5 +1,3 @@
-import { ProductionModuleView } from '@/components/modules/production-module-view';
+import CalendarIntelligenceView from '@/components/calendar/calendar-intelligence-view';
 
-export default function CalendarPage() {
-  return <ProductionModuleView module="calendar" />;
-}
+export default function CalendarPage(){return <CalendarIntelligenceView/>;}
