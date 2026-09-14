@@ -1,17 +1,5 @@
-
-'use client'
-import { getDepartment, getDepartmentMembers, getDepartmentProjects } from "@/lib/data";
-import DepartmentPageLayout from "../_components/department-layout";
-
-const departmentSlug = "hr";
-const department = getDepartment(departmentSlug);
-const members = getDepartmentMembers(department?.name || "");
-const projects = getDepartmentProjects(department?.name || "");
+import DepartmentPageLayout from '../_components/department-layout';
 
 export default function HRPage() {
-  if (!department) return <div>Departamento não encontrado.</div>
-
-  return (
-    <DepartmentPageLayout department={department} members={members} projects={projects} />
-  );
+  return <DepartmentPageLayout slug="hr" />;
 }
