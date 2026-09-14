@@ -38,6 +38,10 @@ service cloud.firestore {
     match /automation_rate_limits/{id} { allow read,write: if false; }
     match /notification_deliveries/{id} { allow read,list: if signedIn()&&isCompanyMember(resource.data.companyId); allow write: if false; }
     match /automation_action_requests/{id} { allow read,list: if signedIn()&&isCompanyMember(resource.data.companyId); allow write: if false; }
+    match /enterprise_search_index/{id} { allow read,list: if signedIn()&&isCompanyMember(resource.data.companyId); allow create,update,delete: if false; }
+    match /whiteboards/{id} { allow read,list: if signedIn()&&isCompanyMember(resource.data.companyId); allow create,update,delete: if false; }
+    match /module_clips/{id} { allow read,list: if signedIn()&&isCompanyMember(resource.data.companyId); allow create,update,delete: if false; }
+    match /module_decisions/{id} { allow read,list: if signedIn()&&isCompanyMember(resource.data.companyId); allow create,update,delete: if false; }
     match /system_configs/global { allow read,write: if false; }
   }
 }
