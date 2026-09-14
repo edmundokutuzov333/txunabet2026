@@ -1,31 +1,31 @@
 'use client';
 
-import { analyticsData } from '@/lib/data';
-import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
+import { useQuery } from '@tanstack/react-query';
+import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
+import { apiFetch } from '@/lib/client/api';
 
-// Using theme colors for the chart
-const projectProgressColors = [
-    'hsl(var(--primary))',
-    'hsla(var(--primary), 0.8)',
-    'hsla(var(--primary), 0.6)',
-    'hsla(var(--primary), 0.4)',
-];
-
-const projectData = analyticsData.projectProgress.labels.map((label, i) => ({
-    name: label,
-    value: analyticsData.projectProgress.data[i],
-    fill: projectProgressColors[i % projectProgressColors.length]
-}));
+type AnalyticsResponse = { data: { totals: Record<string, number>; activity: { date: string; count: number }[] } };
 
 export default function ProjectProgressChart() {
+    const { data, isLoading } = useQuery({
+        queryKey: ['analytics'],
+        queryFn: () => apiFetch<AnalyticsResponse>('/api/analytics'),
+    });
+
+    const totals = data?.data.totals ?? {};
+    const projectData = [
+        { name: 'Projects', value: Number(totals.projects ?? 0) },
+        { name: 'Tasks', value: Number(totals.tasks ?? 0) },
+        { name: 'Goals', value: Number(totals.goals ?? 0) },
+        { name: 'Campaigns', value: Number(totals.campaigns ?? 0) },
+    ];
+    if (isLoading) return <div className="h-full w-full flex items-center justify-center text-sm text-muted-foreground">A carregar analytics...</div>;
+
     return (
         <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-                    <Pie data={projectData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={120} label>
-                    {projectData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                </Pie>
+            <BarChart data={projectData}>
+                <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
                 <Tooltip
                     cursor={{ fill: 'hsla(var(--primary) / 0.1)' }}
                     contentStyle={{
@@ -34,7 +34,8 @@ export default function ProjectProgressChart() {
                         color: 'hsl(var(--foreground))'
                     }}
                 />
-            </PieChart>
+                <Bar dataKey="value" name="Registos" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+            </BarChart>
         </ResponsiveContainer>
     );
 }
