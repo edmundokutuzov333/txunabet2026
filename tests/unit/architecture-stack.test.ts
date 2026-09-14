@@ -12,6 +12,8 @@ function walk(dir:string):string[]{const result:string[]=[];for(const entry of f
 const sourceFiles=walk(path.join(root,'src'));
 
 function read(relative:string):string{return fs.readFileSync(path.join(root,relative),'utf8');}
+function normalize(file:string):string{return file.split(path.sep).join('/');}
+function isAppNonApiFile(file:string):boolean{const normalized=normalize(file);return normalized.includes('/src/app/')&&!normalized.includes('/src/app/api/');}
 
 test('required frontend stack is installed',()=>{
   for(const name of ['next','react','typescript','@tanstack/react-query','react-hook-form','zod','recharts','@xyflow/react']) assert.ok(deps[name],`missing dependency: ${name}`);
@@ -24,7 +26,7 @@ test('required backend and E2E stack is installed',()=>{
 test('Genkit/Gemini boundary is centralized',()=>{
   const violations=sourceFiles.filter((file)=>{const content=fs.readFileSync(file,'utf8');if(file.endsWith('/src/ai/genkit.ts'))return false;return content.includes("@genkit-ai/google-genai");});
   assert.deepEqual(violations.map((f)=>path.relative(root,f)),['src/server/services/ai-core.ts']);
-  for(const file of sourceFiles.filter((f)=>f.includes(`${path.sep}app${path.sep}`))){const content=fs.readFileSync(file,'utf8');assert.ok(!content.includes("@genkit-ai/google-genai"),`page imports Gemini directly: ${path.relative(root,file)}`);}
+  for(const file of sourceFiles.filter(isAppNonApiFile)){const content=fs.readFileSync(file,'utf8');assert.ok(!content.includes("@genkit-ai/google-genai"),`page imports Gemini directly: ${path.relative(root,file)}`);}
 });
 
 test('React Flow is used by the production workflow surface',()=>{
@@ -53,7 +55,14 @@ test('automation pipeline has durable workers and receipts',()=>{
   assert.ok(fs.existsSync(path.join(root,'functions/src/phase7-scheduled.ts')));
 });
 
-test('server pages do not access the Admin Firestore SDK directly',()=>{
-  const violations=sourceFiles.filter((file)=>file.includes(`${path.sep}app${path.sep}`)&&fs.readFileSync(file,'utf8').includes('getAdminDb('));
+test('server pages and layouts do not access the Admin Firestore SDK directly',()=>{
+  const violations=sourceFiles.filter((file)=>isAppNonApiFile(file)&&fs.readFileSync(file,'utf8').includes('getAdminDb('));
   assert.deepEqual(violations.map((f)=>path.relative(root,f)),[]);
+});
+
+test('direct messages route stays client-only and never calls client auth from a server page',()=>{
+  const file=read('src/app/dashboard/chat/direct/page.tsx');
+  assert.match(file,/^['"]use client['"];?/);
+  assert.doesNotMatch(file,/getCurrentUser\s*\(/);
+  assert.doesNotMatch(file,/from ['"]@\/lib\/data['"]/);
 });
