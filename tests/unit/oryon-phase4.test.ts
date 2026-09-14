@@ -43,11 +43,23 @@ test('Canonical header uses the backend notification contract', () => {
   assert.match(route, /unreadCount/);
 });
 
+test('Goals experience is backed by the existing goals collection', () => {
+  const page = read('src/app/dashboard/goals/page.tsx');
+  const route = read('src/app/api/goals/route.ts');
+  const service = read('src/server/services/command-center.ts');
+  assert.match(page, /api\/goals/);
+  assert.match(page, /Novo objectivo/);
+  assert.match(route, /collection\('goals'\)/);
+  assert.match(route, /OPERATIONS_READ/);
+  assert.match(route, /OPERATIONS_MANAGE/);
+  assert.match(service, /queryCompany\('goals'/);
+});
+
 test('Phase 4 visual regression suite covers the complete acceptance surface', () => {
   const spec = read('tests/e2e/oryon-phase4-visual.spec.ts');
   for (const route of [
     '/login', '/dashboard', '/dashboard/inbox', '/dashboard/search', '/dashboard/tasks',
-    '/dashboard/projects', '/dashboard/chat/general', '/dashboard/documents', '/dashboard/cloud',
+    '/dashboard/projects', '/dashboard/goals', '/dashboard/chat/general', '/dashboard/documents', '/dashboard/cloud',
     '/dashboard/forms', '/dashboard/workflows', '/dashboard/oryon-ai', '/dashboard/analytics',
     '/dashboard/pulse', '/dashboard/admin/enterprise', '/dashboard/settings',
   ]) assert.ok(spec.includes(route), `visual matrix missing ${route}`);
