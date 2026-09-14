@@ -42,6 +42,7 @@ service cloud.firestore {
     match /whiteboards/{id} { allow read,list: if signedIn()&&isCompanyMember(resource.data.companyId); allow create,update,delete: if false; }
     match /module_clips/{id} { allow read,list: if signedIn()&&isCompanyMember(resource.data.companyId); allow create,update,delete: if false; }
     match /module_decisions/{id} { allow read,list: if signedIn()&&isCompanyMember(resource.data.companyId); allow create,update,delete: if false; }
+    match /ai_usage/{id} { allow read,list,create,update,delete: if false; }
     match /system_configs/global { allow read,write: if false; }
   }
 }
