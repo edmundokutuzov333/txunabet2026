@@ -33,7 +33,7 @@ function notificationDescriptor(event: Record<string, unknown>) {
   if (name === 'approval.rejected') return { category: 'approval', severity: 'high', title: 'Aprovação rejeitada', body: String(payload.title ?? 'Uma aprovação foi rejeitada.') };
   if (name === 'form.submitted') return { category: 'form', severity: 'medium', title: 'Novo formulário submetido', body: String(payload.title ?? 'Um formulário recebeu uma nova submissão.') };
   if (name === 'document.updated') return { category: 'document', severity: 'low', title: 'Documento atualizado', body: String(payload.title ?? 'Um documento foi atualizado.') };
-  if (name === 'workflow.failed') return { category: 'workflow', severity: 'critical', title: 'Workflow falhou', body: String(payload.error ?? payload.title ?? 'Uma execução de workflow falhou.') };
+  if (name === 'workflow.failed') return { category: 'alert', severity: 'critical', title: 'Workflow falhou', body: String(payload.error ?? payload.title ?? 'Uma execução de workflow falhou.') };
   if (name === 'decision.created' || name === 'decision.updated') return { category: 'decision', severity: 'medium', title: 'Decisão registada', body: String(payload.title ?? 'Uma decisão organizacional foi registada.') };
   if (name.startsWith('incident.') || name.endsWith('.alert')) return { category: 'alert', severity: 'critical', title: 'Alerta operacional', body: String(payload.message ?? payload.title ?? 'Um alerta operacional requer atenção.') };
   if (name === 'user.joined') return { category: 'system', severity: 'info', title: 'Novo membro na empresa', body: String(payload.displayName ?? payload.email ?? 'Um novo membro juntou-se à empresa.') };
@@ -47,6 +47,8 @@ async function materializeMeetingActions(event: Record<string, unknown>): Promis
   if (!actions.length) return;
   const companyId = String(event.companyId ?? '');
   const meetingId = String(event.entityId ?? '');
+  const actorId = String(event.actorId ?? '');
+  const sourceEventId = String(event.eventId ?? '');
   for (let index = 0; index < Math.min(actions.length, 30); index += 1) {
     const raw = actions[index];
     const action = typeof raw === 'string' ? { title: raw } : raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
@@ -54,13 +56,14 @@ async function materializeMeetingActions(event: Record<string, unknown>): Promis
     if (!title) continue;
     const taskId = `meeting_${meetingId}_${index}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 700);
     const taskRef = db.collection('module_tasks').doc(taskId);
+    const taskEventRef = db.collection('event_outbox').doc(`meeting_action_task_${taskId}`);
     await db.runTransaction(async (transaction) => {
       if ((await transaction.get(taskRef)).exists) return;
       transaction.create(taskRef, {
         id: taskId,
         companyId,
-        createdBy: String(event.actorId ?? ''),
-        updatedBy: String(event.actorId ?? ''),
+        createdBy: actorId,
+        updatedBy: actorId,
         ownerId: typeof action.assigneeId === 'string' ? action.assigneeId : undefined,
         assigneeId: typeof action.assigneeId === 'string' ? action.assigneeId : undefined,
         title,
@@ -69,12 +72,27 @@ async function materializeMeetingActions(event: Record<string, unknown>): Promis
         priority: String(action.priority ?? 'medium'),
         dueDate: typeof action.dueDate === 'string' ? action.dueDate : undefined,
         meetingId,
-        sourceEventId: String(event.eventId ?? ''),
+        sourceEventId,
         metadata: { source: 'meeting.action-item', meetingId },
         permissions: {},
         version: 1,
         createdAt: now(),
         updatedAt: now(),
+      });
+      transaction.create(taskEventRef, {
+        eventId: taskEventRef.id,
+        companyId,
+        eventName: 'task.created',
+        entityType: 'task',
+        entityId: taskId,
+        actorId,
+        occurredAt: now(),
+        payload: { title, taskId, assigneeId: typeof action.assigneeId === 'string' ? action.assigneeId : undefined, ownerId: typeof action.assigneeId === 'string' ? action.assigneeId : undefined, meetingId, sourceEventId },
+        metadata: { source: 'meeting.action-item' },
+        schemaVersion: 1,
+        status: 'pending',
+        attempts: 0,
+        nextAttemptAt: now(),
       });
     });
   }
