@@ -3,6 +3,8 @@ import { requireIdentity } from '@/server/authorization';
 import { getAdminDb } from '@/server/firebase/admin';
 import { BET_DEPARTMENTS } from '@/server/services/demo-seed';
 
+type Row = { id: string; [key: string]: unknown };
+
 export async function GET(_request: Request, context: { params: Promise<{ slug: string }> }) {
   try {
     const identity = await requireIdentity();
@@ -19,16 +21,18 @@ export async function GET(_request: Request, context: { params: Promise<{ slug: 
       db.collection('module_tasks').where('companyId', '==', identity.companyId).where('departmentId', '==', departmentId).limit(100).get(),
     ]);
 
-    const department = departmentSnap.exists ? departmentSnap.data() : { id: departmentId, companyId: identity.companyId, slug, name: definition[1], description: `Área de ${String(definition[1]).toLowerCase()} da operação Txuna Bet.`, budget: 0, goals: [] };
-    const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() }));
-    const projects = projectsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    const tasks = tasksSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const department: Record<string, unknown> = departmentSnap.exists
+      ? { id: departmentId, ...(departmentSnap.data() as Record<string, unknown>) }
+      : { id: departmentId, companyId: identity.companyId, slug, name: definition[1], description: `Área de ${String(definition[1]).toLowerCase()} da operação Txuna Bet.`, budget: 0, goals: [] };
+    const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...(doc.data() as Record<string, unknown>) }));
+    const projects: Row[] = projectsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
+    const tasks: Row[] = tasksSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
     const completedTasks = tasks.filter((task) => ['done', 'completed'].includes(String(task.status ?? '').toLowerCase())).length;
     const blockedTasks = tasks.filter((task) => ['blocked', 'waiting'].includes(String(task.status ?? '').toLowerCase())).length;
     const highPriority = tasks.filter((task) => ['high', 'critical', 'urgent'].includes(String(task.priority ?? '').toLowerCase())).length;
 
     return NextResponse.json({
-      department: { ...department, id: department.id ?? departmentId, slug, memberCount: members.length, projects: projects.length },
+      department: { ...department, id: String(department.id ?? departmentId), slug, memberCount: members.length, projects: projects.length },
       members,
       projects,
       tasks,
