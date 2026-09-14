@@ -1,0 +1,6 @@
+import { NextResponse } from 'next/server';
+import { verifyInboundWebhook } from '@/server/services/integration-platform';
+import { publishDomainEvent } from '@/server/services/foundation';
+
+export const runtime='nodejs';
+export async function POST(request:Request,context:{params:Promise<{webhookId:string}>}){try{const{webhookId}=await context.params;const body=await request.text();if(body.length>250000)return NextResponse.json({error:'PAYLOAD_TOO_LARGE'},{status:413});const timestamp=request.headers.get('x-oryon-timestamp')??'';const signature=request.headers.get('x-oryon-signature')??'';const result=await verifyInboundWebhook(webhookId,timestamp,signature,body);const payload=(()=>{try{return JSON.parse(body);}catch{return{raw:body.slice(0,20000)};}})();const eventId=`integration_webhook_${webhookId}_${timestamp}_${signature.slice(0,16)}`;await publishDomainEvent({eventName:'integration.webhook.received',entityType:'integration',entityId:result.connectionId,payload:{provider:result.provider,webhookId,payload},metadata:{source:'integration-webhook',eventId}},{companyId:result.companyId,actorId:'external'});return NextResponse.json({ok:true});}catch(e){const message=e instanceof Error?e.message:'WEBHOOK_FAILED';const status=message.includes('SIGNATURE')||message.includes('NOT_FOUND')?401:400;return NextResponse.json({error:message},{status});}}
