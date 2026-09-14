@@ -1,0 +1,28 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { Search, Sparkles, Network, Clock3, UserRound } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useToast } from '@/hooks/use-toast';
+
+type Result={id:string;type:string;title:string;snippet:string;score:number;updatedAt?:string;ownerId?:string;metadata:Record<string,unknown>};
+const TYPES=['all','messages','people','tasks','projects','campaigns','meetings','documents','files','knowledge','decisions','approvals','workflows','reports'];
+
+function typeLabel(type:string){return type.replace('knowledge','Knowledge').replace('messages','Messages').replace('people','People').replace('tasks','Tasks').replace('projects','Projects').replace('campaigns','Campaigns').replace('meetings','Meetings').replace('documents','Documents').replace('files','Files').replace('decisions','Decisions').replace('approvals','Approvals').replace('workflows','Workflows').replace('reports','Reports');}
+
+export default function EnterpriseSearchView(){
+ const {toast}=useToast();const[q,setQ]=useState('');const[query,setQuery]=useState('');const[type,setType]=useState('all');const[semantic,setSemantic]=useState(true);const[results,setResults]=useState<Result[]>([]);const[loading,setLoading]=useState(false);const[graph,setGraph]=useState<{nodes:Array<Record<string,unknown>>;edges:Array<Record<string,unknown>>}|null>(null);
+ const run=async(next=query)=>{if(!next.trim())return;setLoading(true);try{const params=new URLSearchParams({q:next,scope:'all',semantic:String(semantic)});if(type!=='all')params.set('type',type);const r=await fetch(`/api/search?${params}`,{cache:'no-store'});const p=await r.json();if(!r.ok)throw new Error(p.error);setResults(Array.isArray(p.data)?p.data:[])}catch(e){toast({variant:'destructive',title:'Pesquisa falhou',description:e instanceof Error?e.message:'Erro'})}finally{setLoading(false)}};
+ useEffect(()=>{if(query)void run(query)},[type]);
+ const inspect=async(result:Result)=>{const r=await fetch(`/api/search?resource=graph&type=${encodeURIComponent(result.type)}&id=${encodeURIComponent(result.id)}&depth=1`);const p=await r.json();if(r.ok)setGraph(p.data as typeof graph)};
+ return <div className="p-4 md:p-6 space-y-5"><div><div className="text-sm text-muted-foreground">Oryon Context</div><h1 className="text-3xl font-bold mt-1">Search Oryon</h1><p className="text-muted-foreground">Pesquisa transversal com ranking lexical + semântico, recência e ACL server-side.</p></div>
+  <Card><CardContent className="pt-6"><div className="flex gap-2"><div className="relative flex-1"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground"/><Input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){setQuery(q);void run(q)}}} className="pl-9" placeholder="Campanha de aquisição de novos jogadores..."/></div><Button variant={semantic?'default':'outline'} onClick={()=>setSemantic(v=>!v)}><Sparkles className="h-4 w-4 mr-2"/>Semantic</Button><Button onClick={()=>{setQuery(q);void run(q)}} disabled={loading}>{loading?'A pesquisar...':'Pesquisar'}</Button></div>
+   <div className="flex flex-wrap gap-2 mt-4">{TYPES.map(t=><Button key={t} size="sm" variant={type===t?'secondary':'outline'} onClick={()=>setType(t)}>{typeLabel(t)}</Button>)}</div>
+  </CardContent></Card>
+  <div className="grid xl:grid-cols-[1fr_360px] gap-4"><div className="space-y-3">{query&&<div className="text-sm text-muted-foreground">{results.length} resultados para <span className="font-medium text-foreground">{query}</span></div>}{results.map(result=><Card key={`${result.type}:${result.id}`} className="hover:border-primary/40 transition-colors cursor-pointer" onClick={()=>void inspect(result)}><CardContent className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2"><Badge variant="secondary">{typeLabel(result.type)}</Badge><span className="font-semibold truncate">{result.title}</span></div><p className="text-sm text-muted-foreground mt-2 line-clamp-3">{result.snippet}</p></div><div className="text-right text-xs text-muted-foreground"><div className="font-medium text-foreground">{Math.round(result.score*100)}%</div>{result.updatedAt&&<div className="flex items-center gap-1 mt-1"><Clock3 className="h-3 w-3"/>{new Date(result.updatedAt).toLocaleDateString('pt-PT')}</div>}</div></div></CardContent></Card>)}{query&&!results.length&&!loading&&<Card><CardContent className="py-12 text-center text-muted-foreground">Nenhum resultado acessível.</CardContent></Card>}</div>
+   <Card className="h-fit"><CardHeader><CardTitle className="flex items-center gap-2"><Network className="h-4 w-4"/>Context Graph</CardTitle></CardHeader><CardContent>{graph?<div className="space-y-3">{graph.nodes.map((node,i)=><div key={i} className="rounded-lg border p-3"><div className="text-xs text-muted-foreground">{String(node.type)}</div><div className="font-medium">{String(node.title)}</div></div>)}{graph.edges.map((edge,i)=><div key={i} className="text-xs p-2 rounded bg-muted"><span className="font-medium">{String(edge.field)}</span> → {String((edge.to as Record<string,unknown>)?.title??'related')}</div>)}{!graph.edges.length&&<div className="text-sm text-muted-foreground">Sem relações disponíveis.</div>}</div>:<div className="text-sm text-muted-foreground"><UserRound className="h-4 w-4 inline mr-1"/>Clique num resultado para ver o contexto relacional.</div>}</CardContent></Card>
+  </div></div>;
+}
