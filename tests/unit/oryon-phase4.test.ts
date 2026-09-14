@@ -24,6 +24,14 @@ test('Oryon global interaction baseline covers focus, reduced motion and offline
   assert.match(css, /disabled/);
 });
 
+test('Advanced Oryon primitives expose core accessibility semantics', () => {
+  const system = read('src/components/oryon-ui/oryon-system.tsx');
+  assert.match(system, /aria-label/);
+  assert.match(system, /aria-checked/);
+  assert.match(system, /focus-visible/);
+  assert.match(system, /useReducedMotion/);
+});
+
 test('Phase 4 visual regression suite covers the complete acceptance surface', () => {
   const spec = read('tests/e2e/oryon-phase4-visual.spec.ts');
   for (const route of [
