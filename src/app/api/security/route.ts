@@ -4,6 +4,8 @@ import { getAdminAuth, getAdminDb } from '@/server/firebase/admin';
 import { requireIdentity } from '@/server/authorization';
 import { writeAuditEvent } from '@/server/repositories/audit';
 
+type SecurityRow = { id: string; [key: string]: unknown };
+
 export async function GET() {
   try {
     const identity = await requireIdentity();
@@ -14,11 +16,10 @@ export async function GET() {
       db.collection('security_sessions').where('companyId', '==', identity.companyId).where('userId', '==', identity.uid).limit(20).get(),
     ]);
     const profileData = profile.data() ?? {};
-    return NextResponse.json({
-      settings: { mfaRequired: profileData.mfaRequired !== false, mfaEnabled: profileData.mfaEnabled === true },
-      logs: logs.docs.map((doc) => ({ id: doc.id, ...doc.data() })).sort((a,b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? ''))),
-      sessions: sessions.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-    });
+    const logRows: SecurityRow[] = logs.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
+    const sessionRows: SecurityRow[] = sessions.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
+    logRows.sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
+    return NextResponse.json({ settings: { mfaRequired: profileData.mfaRequired !== false, mfaEnabled: profileData.mfaEnabled === true }, logs: logRows, sessions: sessionRows });
   } catch (error) {
     const code = error instanceof Error ? error.message : 'SECURITY_LOAD_FAILED';
     return NextResponse.json({ error: code }, { status: code === 'UNAUTHENTICATED' ? 401 : 500 });
