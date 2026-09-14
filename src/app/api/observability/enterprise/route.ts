@@ -1,0 +1,6 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { getObservabilityDashboard, recordEnterpriseMetric, evaluateObservabilityAlerts, type EnterpriseMetricName } from '@/server/services/observability-enterprise';
+const schema=z.object({action:z.enum(['metric','evaluate']).default('evaluate'),name:z.string().optional(),value:z.number().optional(),success:z.boolean().optional(),route:z.string().optional(),component:z.string().optional()});
+export async function GET(){try{return NextResponse.json(await getObservabilityDashboard(),{headers:{'Cache-Control':'no-store'}});}catch(e){return NextResponse.json({error:e instanceof Error?e.message:'OBSERVABILITY_FAILED'},{status:400});}}
+export async function POST(req:NextRequest){try{const i=schema.parse(await req.json());if(i.action==='evaluate')return NextResponse.json(await evaluateObservabilityAlerts());if(!i.name||typeof i.value!=='number')throw new Error('METRIC_INPUT_REQUIRED');await recordEnterpriseMetric({name:i.name as EnterpriseMetricName,value:i.value,success:i.success,route:i.route,component:i.component});return new NextResponse(null,{status:204});}catch(e){return NextResponse.json({error:e instanceof Error?e.message:'OBSERVABILITY_FAILED'},{status:400});}}
