@@ -5,6 +5,8 @@ import { getAuth, type Auth } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { getStorage, type Storage } from 'firebase-admin/storage';
 
+type AdminRecord = Record<string, unknown>;
+
 let adminApp: App | undefined;
 
 function serviceAccountFromEnvironment(): ServiceAccount | undefined {
@@ -51,9 +53,10 @@ export function getAdminAuth(): Auth {
   return getAuth(getAdminApp());
 }
 
-export function getAdminDb(): Firestore {
+export function getAdminDb(): Firestore<AdminRecord> {
   const databaseId = process.env.FIREBASE_FIRESTORE_DATABASE_ID;
-  return databaseId ? getFirestore(getAdminApp(), databaseId) : getFirestore(getAdminApp());
+  const firestore = databaseId ? getFirestore(getAdminApp(), databaseId) : getFirestore(getAdminApp());
+  return firestore as Firestore<AdminRecord>;
 }
 
 export function getAdminStorage(): Storage {
