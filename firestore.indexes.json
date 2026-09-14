@@ -14,6 +14,16 @@
     { "collectionGroup": "module_automations", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "active", "order": "ASCENDING" }, { "fieldPath": "__name__", "order": "ASCENDING" } ] },
     { "collectionGroup": "module_automations", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "workflowId", "order": "ASCENDING" } ] },
     { "collectionGroup": "automation_jobs", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" } ] },
+    { "collectionGroup": "automation_jobs", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "nextAttemptAt", "order": "ASCENDING" } ] },
+    { "collectionGroup": "integration_sync_jobs", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "nextAttemptAt", "order": "ASCENDING" } ] },
+    { "collectionGroup": "integration_connections", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "state", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "integration_webhooks", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "state", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "oryon_apps", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "oryon_app_webhooks", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "appId", "order": "ASCENDING" } ] },
+    { "collectionGroup": "marketplace_installations", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "observability_metrics", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "name", "order": "ASCENDING" }, { "fieldPath": "timestamp", "order": "DESCENDING" } ] },
+    { "collectionGroup": "observability_alerts", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "active", "order": "ASCENDING" }, { "fieldPath": "severity", "order": "ASCENDING" } ] },
+    { "collectionGroup": "enterprise_search_index", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
     { "collectionGroup": "entity_relationships", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "sourceType", "order": "ASCENDING" }, { "fieldPath": "sourceId", "order": "ASCENDING" } ] },
     { "collectionGroup": "entity_relationships", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "targetType", "order": "ASCENDING" }, { "fieldPath": "targetId", "order": "ASCENDING" } ] },
     { "collectionGroup": "event_outbox", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "nextAttemptAt", "order": "ASCENDING" } ] },
@@ -22,8 +32,7 @@
     { "collectionGroup": "form_submissions", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "formId", "order": "ASCENDING" } ] },
     { "collectionGroup": "whiteboards", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
     { "collectionGroup": "module_clips", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
-    { "collectionGroup": "module_decisions", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
-    { "collectionGroup": "enterprise_search_index", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] }
+    { "collectionGroup": "module_decisions", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "companyId", "order": "ASCENDING" }, { "fieldPath": "updatedAt", "order": "DESCENDING" } ] }
   ],
   "fieldOverrides": []
 }
