@@ -39,9 +39,27 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:unit
 
+  integration:
+    name: Foundation integration tests
+    needs: quality
+    runs-on: ubuntu-latest
+    env:
+      FIREBASE_PROJECT_ID: ci-project
+      FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+      GCLOUD_PROJECT: ci-project
+      FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npx --yes firebase-tools@latest emulators:exec --only firestore --project ci-project "npm run test:integration"
+
   build:
     name: Production build
-    needs: quality
+    needs: [quality, integration]
     runs-on: ubuntu-latest
     env:
       NEXT_PUBLIC_FIREBASE_API_KEY: ci-public-api-key
@@ -93,7 +111,7 @@ jobs:
 
   e2e:
     name: End-to-end browser smoke
-    needs: [build, rules]
+    needs: [build, rules, integration]
     runs-on: ubuntu-latest
     env:
       NEXT_PUBLIC_FIREBASE_API_KEY: ci-public-api-key
