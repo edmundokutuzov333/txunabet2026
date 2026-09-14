@@ -5,13 +5,15 @@ import { requireIdentity } from '@/server/authorization';
 import { getAdminDb } from '@/server/firebase/admin';
 import { listInbox } from './notification';
 
-const ROLE_SURFACES = {
+export const ROLE_SURFACES = {
   owner: ['Company', 'Finance', 'Marketing', 'Operations', 'People', 'Risks', 'Goals'],
   admin: ['Company', 'Finance', 'Marketing', 'Operations', 'People', 'Risks', 'Goals'],
   manager: ['Team', 'Projects', 'Tasks', 'Meetings', 'Approvals', 'Workload'],
   member: ['My work', 'Messages', 'Meetings', 'Tasks', 'Approvals', 'Personal goals'],
   viewer: ['My work', 'Messages', 'Meetings', 'Tasks', 'Approvals', 'Personal goals'],
 } as const;
+
+type EntityRecord = Record<string, unknown> & { id: string };
 
 function millis(value: unknown): number {
   if (value instanceof Timestamp) return value.toMillis();
@@ -20,8 +22,18 @@ function millis(value: unknown): number {
   return 0;
 }
 
-function dateKey(value: unknown): string { const ms = millis(value); return ms ? new Date(ms).toISOString().slice(0, 10) : ''; }
-function humanTitle(item: Record<string, unknown>, fallback: string) { return String(item.title ?? item.name ?? item.subject ?? fallback); }
+function dateKey(value: unknown): string {
+  const ms = millis(value);
+  return ms ? new Date(ms).toISOString().slice(0, 10) : '';
+}
+
+function humanTitle(item: Record<string, unknown>, fallback: string): string {
+  return String(item.title ?? item.name ?? item.subject ?? fallback);
+}
+
+function normalizeSnapshot(snapshot: QuerySnapshot<DocumentData>): EntityRecord[] {
+  return snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
+}
 
 async function queryCompany(collection: string, companyId: string, limit = 100): Promise<QuerySnapshot<DocumentData>> {
   try {
@@ -53,17 +65,18 @@ export async function getCommandCenter() {
     listInbox({ limit: 100 }),
   ]);
 
-  const tasks = tasksSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
-  const meetings = meetingsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
-  const projects = projectsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
-  const campaigns = campaignsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
-  const approvals = approvalsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
-  const risks = risksSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
-  const incidents = incidentsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
-  const goals = goalsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
-  const automations = automationsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
-  const outbox = outboxSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
-  const activities = activitiesSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
+  const tasks = normalizeSnapshot(tasksSnap);
+  const meetings = normalizeSnapshot(meetingsSnap);
+  const projects = normalizeSnapshot(projectsSnap);
+  const campaigns = normalizeSnapshot(campaignsSnap);
+  const approvals = normalizeSnapshot(approvalsSnap);
+  const risks = normalizeSnapshot(risksSnap);
+  const incidents = normalizeSnapshot(incidentsSnap);
+  const goals = normalizeSnapshot(goalsSnap);
+  const automations = normalizeSnapshot(automationsSnap);
+  const outbox = normalizeSnapshot(outboxSnap);
+  const activities = normalizeSnapshot(activitiesSnap);
+  const inboxItems = inbox as EntityRecord[];
 
   const mine = (task: Record<string, unknown>) => [task.assigneeId, task.assignedTo, task.ownerId].some((value) => value === identity.uid);
   const myTasks = tasks.filter(mine).filter((task) => !['done', 'completed', 'cancelled'].includes(String(task.status ?? '')));
@@ -71,11 +84,22 @@ export async function getCommandCenter() {
     const participants = Array.isArray(meeting.participants) ? meeting.participants.map(String) : [];
     return participants.includes(identity.uid) || meeting.ownerId === identity.uid || meeting.createdBy === identity.uid;
   });
-  const dueToday = myTasks.filter((task) => { const due = millis(task.dueDate); return due >= today.getTime() && due < endToday; });
-  const overdue = myTasks.filter((task) => { const due = millis(task.dueDate); return due > 0 && due < now; });
-  const pendingApprovals = approvals.filter((approval) => ['pending', 'requested', 'awaiting'].includes(String(approval.status ?? '').toLowerCase()) && [approval.approverId, approval.assignedTo, approval.userId, approval.requesterId].includes(identity.uid));
-  const critical = inbox.filter((item) => ['critical', 'high'].includes(String(item.severity ?? '')) && item.read !== true);
-  const atRisk = [...projects, ...risks, ...incidents].filter((item) => ['at-risk', 'at_risk', 'critical', 'open', 'blocked'].includes(String(item.status ?? '').toLowerCase()) || item.atRisk === true).slice(0, 20);
+  const dueToday = myTasks.filter((task) => {
+    const due = millis(task.dueDate);
+    return due >= today.getTime() && due < endToday;
+  });
+  const overdue = myTasks.filter((task) => {
+    const due = millis(task.dueDate);
+    return due > 0 && due < now;
+  });
+  const pendingApprovals = approvals.filter((approval) => {
+    const status = String(approval.status ?? '').toLowerCase();
+    return ['pending', 'requested', 'awaiting'].includes(status) && [approval.approverId, approval.assignedTo, approval.userId, approval.requesterId].includes(identity.uid);
+  });
+  const critical = inboxItems.filter((item) => ['critical', 'high'].includes(String(item.severity ?? '')) && item.read !== true);
+  const atRisk = [...projects, ...risks, ...incidents]
+    .filter((item) => ['at-risk', 'at_risk', 'critical', 'open', 'blocked'].includes(String(item.status ?? '').toLowerCase()) || item.atRisk === true)
+    .slice(0, 20);
   const blocked = myTasks.filter((task) => ['blocked', 'waiting'].includes(String(task.status ?? '').toLowerCase()));
   const failedWorkflows = outbox.filter((item) => String(item.eventName ?? '').includes('workflow.failed') || String(item.status ?? '') === 'failed');
 
@@ -90,8 +114,18 @@ export async function getCommandCenter() {
     { label: 'Automation', value: automations.filter((item) => item.active === true).length, href: '/dashboard/automations' },
   ];
 
-  const activityFeed = activities.concat(outbox.map((item) => ({ id: `event_${item.id}`, eventName: item.eventName, entityType: item.entityType, entityId: item.entityId, createdAt: item.occurredAt, actorId: item.actorId, payload: item.payload })))
-    .sort((a, b) => millis(b.createdAt) - millis(a.createdAt)).slice(0, 30)
+  const activityFeed = activities
+    .concat(outbox.map((item) => ({
+      id: `event_${item.id}`,
+      eventName: item.eventName,
+      entityType: item.entityType,
+      entityId: item.entityId,
+      createdAt: item.occurredAt,
+      actorId: item.actorId,
+      payload: item.payload,
+    })))
+    .sort((a, b) => millis(b.createdAt) - millis(a.createdAt))
+    .slice(0, 30)
     .map((item) => ({
       id: String(item.id),
       eventName: String(item.eventName ?? 'activity'),
@@ -102,14 +136,25 @@ export async function getCommandCenter() {
       title: humanTitle((item.payload ?? {}) as Record<string, unknown>, String(item.eventName ?? 'Atividade')),
     }));
 
-  const unread = inbox.filter((item) => item.read !== true);
+  const unread = inboxItems.filter((item) => item.read !== true);
   const categoryCount = (category: string) => unread.filter((item) => item.category === category).length;
 
   return {
-    identity: { uid: identity.uid, email: identity.email, role: identity.role, companyId: identity.companyId, departmentIds: identity.departmentIds },
+    identity: {
+      uid: identity.uid,
+      email: identity.email,
+      role: identity.role,
+      companyId: identity.companyId,
+      departmentIds: identity.departmentIds,
+    },
     surfaces: [...ROLE_SURFACES[identity.role]],
     today: {
-      tasks: myTasks.slice(0, 10), meetings: myMeetings.slice(0, 10), messages: unread.filter((item) => ['mention', 'comment'].includes(String(item.category))).slice(0, 10), approvals: pendingApprovals.slice(0, 10), deadlines: dueToday.slice(0, 10), alerts: critical.slice(0, 10),
+      tasks: myTasks.slice(0, 10),
+      meetings: myMeetings.slice(0, 10),
+      messages: unread.filter((item) => ['mention', 'comment'].includes(String(item.category))).slice(0, 10),
+      approvals: pendingApprovals.slice(0, 10),
+      deadlines: dueToday.slice(0, 10),
+      alerts: critical.slice(0, 10),
     },
     pulse,
     attention: {
@@ -127,10 +172,21 @@ export async function getCommandCenter() {
       summary: `${unread.length} itens não lidos, ${overdue.length} tarefas em atraso, ${pendingApprovals.length} aprovações pendentes e ${atRisk.length} sinais de risco.`,
     },
     inbox: {
-      items: inbox,
-      counts: { totalUnread: unread.length, critical: critical.length, today: inbox.filter((item) => millis(item.createdAt) >= today.getTime()).length, informational: categoryCount('system') },
+      items: inboxItems,
+      counts: {
+        totalUnread: unread.length,
+        critical: critical.length,
+        today: inboxItems.filter((item) => millis(item.createdAt) >= today.getTime()).length,
+        informational: categoryCount('system'),
+      },
     },
     activityFeed,
-    offline: { decisions: unread.filter((item) => item.category === 'decision').slice(0, 5), messages: unread.filter((item) => ['mention', 'comment'].includes(String(item.category))).slice(0, 5), tasks: unread.filter((item) => ['assignment', 'task'].includes(String(item.category))).slice(0, 5), approvals: unread.filter((item) => item.category === 'approval').slice(0, 5), projectsAtRisk: atRisk.slice(0, 5) },
+    offline: {
+      decisions: unread.filter((item) => item.category === 'decision').slice(0, 5),
+      messages: unread.filter((item) => ['mention', 'comment'].includes(String(item.category))).slice(0, 5),
+      tasks: unread.filter((item) => ['assignment', 'task'].includes(String(item.category))).slice(0, 5),
+      approvals: unread.filter((item) => item.category === 'approval').slice(0, 5),
+      projectsAtRisk: atRisk.slice(0, 5),
+    },
   };
 }
