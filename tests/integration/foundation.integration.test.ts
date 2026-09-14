@@ -16,7 +16,7 @@ function uniqueId(prefix: string): string {
 }
 
 after(async () => {
-  await admin.app().delete();
+  await Promise.all(admin.apps.map((app) => app.delete()));
 });
 
 test('entity mutation and domain event are committed atomically', async () => {
