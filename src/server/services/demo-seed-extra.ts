@@ -27,7 +27,7 @@ export async function ensureDemoDataExtra(identity: AuthenticatedIdentity) {
   const db = getAdminDb();
   const marker = db.collection('companies').doc(identity.companyId).collection('system').doc('demo-extra-seed');
   const current = await marker.get();
-  if (current.exists && Number(current.data()?.version) >= 7) return;
+  if (current.exists && Number(current.data()?.version) >= 8) return;
   const ts = FieldValue.serverTimestamp();
   const common = { companyId: identity.companyId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: ts, updatedAt: ts, status: 'active', version: 1 };
 
@@ -58,5 +58,5 @@ export async function ensureDemoDataExtra(identity: AuthenticatedIdentity) {
   await seed(db, 'event_outbox', Array.from({ length: 20 }, (_, i) => ({ ...common, id: `demo-outbox-${i + 1}`, eventName: i % 9 === 0 ? 'workflow.failed' : 'task.updated', entityType: i % 4 === 0 ? 'workflow' : 'task', entityId: `demo-entity-${i + 1}`, status: i % 9 === 0 ? 'failed' : 'published', occurredAt: new Date(Date.now() - i * 3600000), payload: { title: i % 9 === 0 ? 'Workflow de reconciliação falhou' : 'Actualização de tarefa', message: 'Evento operacional gerado pelo sistema.' } })));
   await seed(db, 'security_events', Array.from({ length: 16 }, (_, i) => ({ ...common, id: `demo-security-event-${i + 1}`, userId: identity.uid, event: ['Sessão iniciada','MFA verificado','Password alterada','Login falhado','Token renovado','Sessão encerrada'][i % 6], status: i % 7 === 0 ? 'failed' : 'success', location: i % 5 === 0 ? 'Maputo, MZ' : 'Cloud region', device: ['Chrome Desktop','Safari iPhone','Firefox Desktop'][i % 3], createdAt: new Date(Date.now() - i * 3600000) })));
   await seed(db, 'security_sessions', Array.from({ length: 4 }, (_, i) => ({ ...common, id: `demo-session-${i + 1}`, userId: identity.uid, device: ['MacBook Pro','Windows Desktop','iPhone','Android'][i], browser: ['Chrome','Edge','Safari','Chrome'][i], location: 'Maputo, MZ', ip: `10.20.0.${10 + i}`, state: i === 3 ? 'idle' : 'active', lastActive: i === 0 ? 'Agora' : `${i + 1}h atrás` })));
-  await marker.set({ version: 7, seededAt: ts, seededBy: identity.uid, note: 'complete departmental portfolio, documents, incidents and security telemetry' }, { merge: true });
+  await marker.set({ version: 8, seededAt: ts, seededBy: identity.uid, note: 'complete departmental portfolio, documents, incidents and security telemetry' }, { merge: true });
 }
