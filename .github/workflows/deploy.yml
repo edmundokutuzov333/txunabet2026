@@ -36,6 +36,12 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test:unit
+      - name: Run foundation integration suite
+        env:
+          FIREBASE_PROJECT_ID: ci-project
+          FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
+          GCLOUD_PROJECT: ci-project
+        run: npx --yes firebase-tools@latest emulators:exec --only firestore --project ci-project "npm run test:integration"
       - run: npm run test:rules
       - run: npm run build
       - name: Install and build Firebase Functions
