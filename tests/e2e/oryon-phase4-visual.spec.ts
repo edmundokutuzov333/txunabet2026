@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 const routes = [
   '/login',
@@ -29,7 +29,7 @@ const viewports = [
 
 const themes = ['dark', 'light'] as const;
 
-async function authenticate(page: Parameters<typeof test>[0] extends never ? never : any) {
+async function authenticate(page: Page) {
   if (!process.env.E2E_EMAIL || !process.env.E2E_PASSWORD) return false;
   await page.goto('/login');
   await page.getByLabel(/email/i).fill(process.env.E2E_EMAIL);
