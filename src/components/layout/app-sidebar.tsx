@@ -1,2 +1,2 @@
-export { AppSidebar } from './oryon-shell';
-export { AppSidebar as default } from './oryon-shell';
+export { AppSidebar } from './oryon-shell-v2';
+export { AppSidebar as default } from './oryon-shell-v2';
