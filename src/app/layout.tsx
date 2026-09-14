@@ -1,4 +1,3 @@
-
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
@@ -12,8 +11,8 @@ import QueryProvider from '@/components/query-provider';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
-  title: 'Enterprise Command',
-  description: 'Oryon Enterprise - Txuna Bet',
+  title: 'Oryon Enterprise',
+  description: 'Oryon Enterprise, plataforma operacional corporativa da Txuna Bet.',
 };
 
 export default function RootLayout({
@@ -22,15 +21,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt" suppressHydrationWarning>
+    <html lang="pt-MZ" suppressHydrationWarning>
       <body className={`${inter.variable} font-body antialiased bg-transparent`}>
-        <ArtisticBackground />
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
           enableSystem
           disableTransitionOnChange
         >
+          <ArtisticBackground />
           <QueryProvider>
             <FirebaseClientProvider>
               <AuthGuard>
