@@ -30,6 +30,10 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Refresh lockfile in runner
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
       - run: npm ci
@@ -42,7 +46,8 @@ jobs:
           FIREBASE_FIRESTORE_DATABASE_ID: '(default)'
           GCLOUD_PROJECT: ci-project
         run: npx --yes firebase-tools@latest emulators:exec --only firestore --project ci-project "npm run test:integration"
-      - run: npm run test:rules
+      - name: Run security rules suite
+        run: npx --yes firebase-tools@latest emulators:exec --only firestore,storage --project demo-oryon "npm run test:rules"
       - run: npm run build
       - name: Install and build Firebase Functions
         working-directory: functions
