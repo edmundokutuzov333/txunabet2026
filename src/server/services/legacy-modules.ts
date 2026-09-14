@@ -5,27 +5,29 @@ import { getAdminDb, getAdminStorage } from '@/server/firebase/admin';
 import { requireIdentity, requirePermission, type AuthenticatedIdentity } from '@/server/authorization';
 import { PERMISSIONS, type Permission } from '@/server/authorization/permissions';
 import { writeAuditEvent } from '@/server/repositories/audit';
+import { publishDomainEvent } from '@/server/services/foundation';
 import { MODULE_SAFE_KEY, sanitizeModulePayload } from '@/lib/quality/module-security';
+import type { EntityType } from '@/server/domain/entities';
 
 export type ModuleName =
   | 'cloud' | 'calendar' | 'meetings' | 'integrations' | 'knowledge-base' | 'campaigns'
   | 'tasks' | 'reports' | 'workflows' | 'automations' | 'pulse' | 'workspaces';
 
-type ModuleConfig = { collection: string; read: Permission; write: Permission; titleField?: string };
+type ModuleConfig = { collection: string; read: Permission; write: Permission; titleField?: string; entityType: EntityType };
 
 const CONFIG: Record<ModuleName, ModuleConfig> = {
-  cloud: { collection: 'module_cloud_files', read: PERMISSIONS.FILES_READ, write: PERMISSIONS.FILES_WRITE, titleField: 'name' },
-  calendar: { collection: 'module_calendar_events', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title' },
-  meetings: { collection: 'module_meetings', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title' },
-  integrations: { collection: 'module_integrations', read: PERMISSIONS.AUTOMATION_READ, write: PERMISSIONS.AUTOMATION_MANAGE, titleField: 'name' },
-  'knowledge-base': { collection: 'module_knowledge_articles', read: PERMISSIONS.KNOWLEDGE_READ, write: PERMISSIONS.KNOWLEDGE_MANAGE, titleField: 'title' },
-  campaigns: { collection: 'module_campaigns', read: PERMISSIONS.MARKETING_READ, write: PERMISSIONS.MARKETING_MANAGE, titleField: 'name' },
-  tasks: { collection: 'module_tasks', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title' },
-  reports: { collection: 'module_reports', read: PERMISSIONS.REPORTING_READ, write: PERMISSIONS.REPORTING_MANAGE, titleField: 'name' },
-  workflows: { collection: 'module_workflows', read: PERMISSIONS.AUTOMATION_READ, write: PERMISSIONS.AUTOMATION_MANAGE, titleField: 'name' },
-  automations: { collection: 'module_automations', read: PERMISSIONS.AUTOMATION_READ, write: PERMISSIONS.AUTOMATION_MANAGE, titleField: 'name' },
-  pulse: { collection: 'module_pulse_items', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title' },
-  workspaces: { collection: 'module_workspaces', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'name' },
+  cloud: { collection: 'module_cloud_files', read: PERMISSIONS.FILES_READ, write: PERMISSIONS.FILES_WRITE, titleField: 'name', entityType: 'file' },
+  calendar: { collection: 'module_calendar_events', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title', entityType: 'event' },
+  meetings: { collection: 'module_meetings', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title', entityType: 'meeting' },
+  integrations: { collection: 'module_integrations', read: PERMISSIONS.AUTOMATION_READ, write: PERMISSIONS.AUTOMATION_MANAGE, titleField: 'name', entityType: 'integration' },
+  'knowledge-base': { collection: 'module_knowledge_articles', read: PERMISSIONS.KNOWLEDGE_READ, write: PERMISSIONS.KNOWLEDGE_MANAGE, titleField: 'title', entityType: 'knowledge_article' },
+  campaigns: { collection: 'module_campaigns', read: PERMISSIONS.MARKETING_READ, write: PERMISSIONS.MARKETING_MANAGE, titleField: 'name', entityType: 'campaign' },
+  tasks: { collection: 'module_tasks', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title', entityType: 'task' },
+  reports: { collection: 'module_reports', read: PERMISSIONS.REPORTING_READ, write: PERMISSIONS.REPORTING_MANAGE, titleField: 'name', entityType: 'report' },
+  workflows: { collection: 'module_workflows', read: PERMISSIONS.AUTOMATION_READ, write: PERMISSIONS.AUTOMATION_MANAGE, titleField: 'name', entityType: 'workflow' },
+  automations: { collection: 'module_automations', read: PERMISSIONS.AUTOMATION_READ, write: PERMISSIONS.AUTOMATION_MANAGE, titleField: 'name', entityType: 'automation' },
+  pulse: { collection: 'module_pulse_items', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title', entityType: 'activity' },
+  workspaces: { collection: 'module_workspaces', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'name', entityType: 'workspace' },
 };
 
 const MAX_RECORDS = 200;
@@ -78,6 +80,17 @@ async function ensureRecordAccess(module: ModuleName, identity: AuthenticatedIde
   if (!data || data.companyId !== identity.companyId) throw new Error('FORBIDDEN');
 }
 
+async function emitModuleEvent(identity: AuthenticatedIdentity, module: ModuleName, action: 'created' | 'updated' | 'deleted', id: string, data: Record<string, unknown> = {}): Promise<void> {
+  const config = configFor(module);
+  await publishDomainEvent({
+    eventName: `${config.entityType}.${action}`,
+    entityType: config.entityType,
+    entityId: id,
+    payload: { module, ...data },
+    metadata: { source: 'legacy-module-service' },
+  }, { companyId: identity.companyId, actorId: identity.uid });
+}
+
 export async function listModuleRecords(module: ModuleName, options?: { q?: string; limit?: number }): Promise<Record<string, unknown>[]> {
   const config = configFor(module);
   const identity = await requirePermission(config.read);
@@ -108,8 +121,9 @@ export async function createModuleRecord(module: ModuleName, rawData: unknown): 
   if (config.titleField && !title) throw new Error('TITLE_REQUIRED');
   const ref = getAdminDb().collection(config.collection).doc();
   const now = FieldValue.serverTimestamp();
-  await ref.create({ ...data, id: ref.id, companyId: identity.companyId, ownerId: module === 'cloud' ? identity.uid : data.ownerId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: now, updatedAt: now, version: 1, searchTitle: title.toLowerCase() });
+  await ref.create({ ...data, id: ref.id, companyId: identity.companyId, ownerId: module === 'cloud' ? identity.uid : data.ownerId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: now, updatedAt: now, version: 1, status: data.status ?? 'active', metadata: data.metadata ?? {}, permissions: data.permissions ?? {}, searchTitle: title.toLowerCase() });
   await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'create', resourceType: module, resourceId: ref.id, metadata: { title } });
+  await emitModuleEvent(identity, module, 'created', ref.id, { record: publicRecord(await ref.get()) });
   return getModuleRecord(module, ref.id);
 }
 
@@ -128,8 +142,10 @@ export async function updateModuleRecord(module: ModuleName, id: string, rawData
   const merged = { ...(current ?? {}), ...data } as Record<string, unknown>;
   const title = titleFor(config, merged);
   if (config.titleField && !title) throw new Error('TITLE_REQUIRED');
-  await ref.update({ ...data, updatedBy: identity.uid, updatedAt: FieldValue.serverTimestamp(), version: FieldValue.increment(1), searchTitle: title.toLowerCase() });
-  await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'update', resourceType: module, resourceId: id, metadata: { title } });
+  const nextVersion = Number(current?.version ?? 1) + 1;
+  await ref.update({ ...data, updatedBy: identity.uid, updatedAt: FieldValue.serverTimestamp(), version: nextVersion, status: data.status ?? current?.status ?? 'active', metadata: data.metadata ?? current?.metadata ?? {}, permissions: data.permissions ?? current?.permissions ?? {}, searchTitle: title.toLowerCase() });
+  await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'update', resourceType: module, resourceId: id, metadata: { title, version: nextVersion } });
+  await emitModuleEvent(identity, module, 'updated', id, { record: await getModuleRecord(module, id) });
   return getModuleRecord(module, id);
 }
 
@@ -146,6 +162,7 @@ export async function deleteModuleRecord(module: ModuleName, id: string): Promis
   if (module === 'cloud' && typeof data?.storagePath === 'string') await getAdminStorage().bucket().file(data.storagePath).delete({ ignoreNotFound: true });
   await ref.delete();
   await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'delete', resourceType: module, resourceId: id });
+  await emitModuleEvent(identity, module, 'deleted', id);
 }
 
 export async function getModuleAnalytics(): Promise<{ totals: Record<string, number>; activity: { date: string; count: number }[] }> {

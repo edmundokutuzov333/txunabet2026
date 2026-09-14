@@ -150,12 +150,25 @@ service cloud.firestore {
 
     match /campaigns/{campaignId} {
       allow read: if signedIn() && isCompanyMember(resource.data.companyId);
-      allow write: if signedIn() && isCompanyAdmin(resource.data.companyId);
+      allow write: if isCompanyAdmin(resource.data.companyId);
     }
 
     match /game_operations/{operationId} {
       allow read: if signedIn() && isCompanyMember(resource.data.companyId);
-      allow write: if signedIn() && isCompanyAdmin(resource.data.companyId);
+      allow write: if isCompanyAdmin(resource.data.companyId);
+    }
+
+    // Universal Oryon foundation collections are intentionally server-authoritative.
+    // All mutations go through authenticated API/services; the client never writes these
+    // collections directly. Read access for foundation internals is also server-mediated.
+    match /entity_relationships/{relationshipId} {
+      allow read, write: if false;
+    }
+    match /event_outbox/{eventId} {
+      allow read, write: if false;
+    }
+    match /automation_step_receipts/{receiptId} {
+      allow read, write: if false;
     }
 
     match /system_configs/global {

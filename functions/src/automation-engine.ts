@@ -4,7 +4,7 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as logger from 'firebase-functions/logger';
 import { z } from 'zod';
 
-if (!admin.apps.length) admin.initializeApp();
+if (!admin.apps?.length) admin.initializeApp();
 const db = admin.firestore();
 const REGION = 'africa-south1';
 const MAX_ATTEMPTS = 5;
@@ -49,16 +49,8 @@ const MODULE_COLLECTIONS: Record<string, string> = {
 };
 
 function now() { return admin.firestore.Timestamp.now(); }
-function minuteKey(date: Date, timezone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
+function localMinuteKey(date: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
   const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '00';
   return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 }
@@ -90,7 +82,6 @@ function cronFieldMatches(value: number, field: string, min: number, max: number
     const normalizedStart = normalize ? normalize(start) : start;
     const normalizedEnd = normalize ? normalize(end) : end;
     if (base && base !== '*' && !base.includes('-') && !stepText) return normalizedValue === normalizedStart;
-    if (normalizedStart > normalizedEnd) return false;
     return normalizedValue >= normalizedStart && normalizedValue <= normalizedEnd && (normalizedValue - normalizedStart) % step === 0;
   });
 }
@@ -170,12 +161,13 @@ async function scheduleCrons(date: Date): Promise<void> {
     const cron = String(trigger.cron ?? '');
     const timezone = String(trigger.timezone ?? 'UTC');
     if (!cronMatches(cron, date, timezone)) continue;
-    const minute = minuteKey(date, timezone);
-    const jobId = `${automation.id}_${minute}`.replace(/[^A-Za-z0-9_-]/g, '_');
+    const minute = localMinuteKey(date, timezone);
+    const utcKey = date.toISOString().slice(0, 16).replace(/[-:T]/g, '');
+    const jobId = `${automation.id}_${utcKey}`.replace(/[^A-Za-z0-9_-]/g, '_');
     await db.runTransaction(async (transaction) => {
       const fresh = await transaction.get(automation.ref);
       const freshData = fresh.data() ?? {};
-      if (freshData.active !== true || freshData.lastScheduledKey === minute) return;
+      if (freshData.active !== true || freshData.lastScheduledKey === jobId) return;
       const workflowId = typeof freshData.workflowId === 'string' ? freshData.workflowId : '';
       const companyId = typeof freshData.companyId === 'string' ? freshData.companyId : '';
       if (!workflowId || !companyId) return;
@@ -184,7 +176,7 @@ async function scheduleCrons(date: Date): Promise<void> {
       const workflowVersion = Number(workflow.data()?.version ?? 1);
       const jobRef = db.collection('automation_jobs').doc(jobId);
       if (!(await transaction.get(jobRef)).exists) transaction.create(jobRef, { id: jobId, companyId, automationId: automation.id, workflowId, workflowVersion, trigger: 'cron', payload: { scheduledAt: date.toISOString(), minuteKey: minute }, idempotencyKey: jobId, status: 'pending', attempts: 0, maxAttempts: MAX_ATTEMPTS, createdAt: now(), updatedAt: now(), nextAttemptAt: now() });
-      transaction.update(automation.ref, { lastScheduledKey: minute, updatedAt: now() });
+      transaction.update(automation.ref, { lastScheduledKey: jobId, updatedAt: now() });
     });
   }
 }
@@ -205,7 +197,7 @@ async function enqueueMatchingEvent(companyId: string, eventName: string, eventI
       if (!workflowId) continue;
       const workflow = await db.collection('module_workflows').doc(workflowId).get();
       if (!workflow.exists || workflow.data()?.companyId !== companyId) continue;
-      const idempotencyKey = `${doc.id}_${eventName}_${eventKey}`;
+      const idempotencyKey = `${doc.id}_${eventName}_${eventKey}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 700);
       jobs.push(await enqueueJob({ automationId: doc.id, workflowId, workflowVersion: Number(workflow.data()?.version ?? 1), companyId, trigger: 'event', payload: { ...payload, eventName, eventId: eventId ?? null }, idempotencyKey }));
     }
     if (snapshot.size < PAGE_SIZE) return jobs;
@@ -230,16 +222,32 @@ async function claimJob(ref: admin.firestore.DocumentReference): Promise<Record<
     return { ...data, id: snapshot.id, attempts };
   });
 }
-async function executeStep(companyId: string, jobId: string, step: z.infer<typeof WorkflowStepSchema>, payload: Record<string, unknown>): Promise<void> {
-  const config = template(step.config, { payload, job: { id: jobId }, company: { id: companyId } }) as Record<string, unknown>;
-  if (step.type === 'log') { logger.info('Automation workflow step', { companyId, jobId, stepId: step.id, message: String(config.message ?? step.name ?? '') }); return; }
+
+function stepReceiptId(jobId: string, executionId: string, stepId: string): string {
+  return `${jobId}:${executionId}:${stepId}`.replace(/[^A-Za-z0-9:_-]/g, '_').slice(0, 700);
+}
+
+async function executeStep(companyId: string, jobId: string, executionId: string, step: z.infer<typeof WorkflowStepSchema>, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const config = template(step.config, { payload, job: { id: jobId, executionId }, company: { id: companyId } }) as Record<string, unknown>;
+  const receiptRef = db.collection('automation_step_receipts').doc(stepReceiptId(jobId, executionId, step.id));
+  const mutationKey = `${companyId}:${jobId}:${executionId}:${step.id}`;
+  const existingReceipt = await receiptRef.get();
+  if (existingReceipt.exists && existingReceipt.data()?.status === 'completed') return (existingReceipt.data()?.result ?? {}) as Record<string, unknown>;
+
+  if (step.type === 'log') {
+    logger.info('Automation workflow step', { companyId, jobId, executionId, stepId: step.id, message: String(config.message ?? step.name ?? '') });
+    await receiptRef.set({ companyId, jobId, executionId, stepId: step.id, mutationKey, status: 'completed', result: {}, createdAt: now(), updatedAt: now() }, { merge: false });
+    return {};
+  }
   if (step.type === 'condition') {
     const actual = payload[String(config.field ?? '')];
     const expected = config.value;
     const operator = String(config.operator ?? 'equals');
     const valid = operator === 'equals' ? actual === expected : operator === 'not_equals' ? actual !== expected : operator === 'contains' ? String(actual ?? '').includes(String(expected ?? '')) : false;
     if (!valid && String(config.whenFalse ?? 'stop') === 'stop') throw new Error('CONDITION_NOT_MET');
-    return;
+    const result = { valid };
+    await receiptRef.set({ companyId, jobId, executionId, stepId: step.id, mutationKey, status: 'completed', result, createdAt: now(), updatedAt: now() }, { merge: false });
+    return result;
   }
   if (step.type === 'http') {
     const url = String(config.url ?? '');
@@ -248,46 +256,96 @@ async function executeStep(companyId: string, jobId: string, step: z.infer<typeo
     const parsed = new URL(url);
     if (['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsed.hostname)) throw new Error('HTTP_HOST_NOT_ALLOWED');
     const headers = typeof config.headers === 'object' && config.headers ? Object.fromEntries(Object.entries(config.headers as Record<string, unknown>).map(([key, value]) => [key, String(value)])) : {};
-    headers['Idempotency-Key'] = `${companyId}:${jobId}:${step.id}`;
+    headers['Idempotency-Key'] = mutationKey;
     const response = await fetch(url, { method, headers, body: method === 'GET' || method === 'HEAD' ? undefined : JSON.stringify(config.body ?? payload), signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error(`HTTP_${response.status}`);
-    return;
+    const result = { status: response.status };
+    await receiptRef.set({ companyId, jobId, executionId, stepId: step.id, mutationKey, status: 'completed', result, createdAt: now(), updatedAt: now() }, { merge: false });
+    return result;
   }
+
   const module = String(config.module ?? '');
   const collection = MODULE_COLLECTIONS[module];
   if (!collection) throw new Error('MODULE_NOT_ALLOWED');
   const moduleData = { ...(config.data && typeof config.data === 'object' && !Array.isArray(config.data) ? config.data as Record<string, unknown> : {}) };
   for (const key of ['id', 'companyId', 'ownerId', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'version', 'searchTitle']) delete moduleData[key];
+
   if (step.type === 'module.create') {
     const deterministicId = `job_${jobId.slice(0, 40)}_${step.id}`;
-    await db.collection(collection).doc(deterministicId).set({ ...moduleData, id: deterministicId, companyId, createdBy: 'automation-worker', updatedBy: 'automation-worker', createdAt: now(), updatedAt: now(), version: 1 }, { merge: true });
-    return;
+    const ref = db.collection(collection).doc(deterministicId);
+    await db.runTransaction(async (transaction) => {
+      const receipt = await transaction.get(receiptRef);
+      if (receipt.exists && receipt.data()?.status === 'completed') return;
+      transaction.set(ref, { ...moduleData, id: deterministicId, companyId, createdBy: 'automation-worker', updatedBy: 'automation-worker', createdAt: now(), updatedAt: now(), version: 1 }, { merge: true });
+      transaction.create(receiptRef, { companyId, jobId, executionId, stepId: step.id, mutationKey, status: 'completed', result: { id: deterministicId }, createdAt: now(), updatedAt: now() });
+    });
+    return { id: deterministicId };
   }
+
   const targetId = String(config.id ?? '');
   if (!/^[A-Za-z0-9_-]{1,180}$/.test(targetId)) throw new Error('INVALID_TARGET_ID');
   const ref = db.collection(collection).doc(targetId);
-  const target = await ref.get();
-  if (!target.exists || target.data()?.companyId !== companyId) throw new Error('TARGET_NOT_FOUND');
-  if (step.type === 'module.update') { await ref.update({ ...moduleData, updatedBy: 'automation-worker', updatedAt: now(), version: admin.firestore.FieldValue.increment(1) }); return; }
-  await ref.delete();
+  if (step.type === 'module.update') {
+    await db.runTransaction(async (transaction) => {
+      const [target, receipt] = await Promise.all([transaction.get(ref), transaction.get(receiptRef)]);
+      if (receipt.exists && receipt.data()?.status === 'completed') return;
+      if (!target.exists || target.data()?.companyId !== companyId) throw new Error('TARGET_NOT_FOUND');
+      transaction.update(ref, { ...moduleData, updatedBy: 'automation-worker', updatedAt: now(), version: admin.firestore.FieldValue.increment(1) });
+      transaction.create(receiptRef, { companyId, jobId, executionId, stepId: step.id, mutationKey, status: 'completed', result: { id: targetId }, createdAt: now(), updatedAt: now() });
+    });
+    return { id: targetId };
+  }
+
+  await db.runTransaction(async (transaction) => {
+    const [target, receipt] = await Promise.all([transaction.get(ref), transaction.get(receiptRef)]);
+    if (receipt.exists && receipt.data()?.status === 'completed') return;
+    if (!target.exists) {
+      transaction.create(receiptRef, { companyId, jobId, executionId, stepId: step.id, mutationKey, status: 'completed', result: { id: targetId, alreadyAbsent: true }, createdAt: now(), updatedAt: now() });
+      return;
+    }
+    if (target.data()?.companyId !== companyId) throw new Error('TARGET_NOT_FOUND');
+    transaction.delete(ref);
+    transaction.create(receiptRef, { companyId, jobId, executionId, stepId: step.id, mutationKey, status: 'completed', result: { id: targetId }, createdAt: now(), updatedAt: now() });
+  });
+  return { id: targetId };
 }
+
 async function executeJob(job: Record<string, unknown>): Promise<void> {
   const jobId = String(job.id); const companyId = String(job.companyId); const workflowId = String(job.workflowId); const workflowVersion = Number(job.workflowVersion ?? 1);
   const workflowSnapshot = await db.collection('module_workflows').doc(workflowId).collection('versions').doc(String(workflowVersion)).get();
   if (!workflowSnapshot.exists || workflowSnapshot.data()?.active !== true) throw new Error('WORKFLOW_VERSION_NOT_FOUND');
   const workflow = WorkflowSchema.safeParse(workflowSnapshot.data()); if (!workflow.success) throw new Error('WORKFLOW_INVALID');
-  const runRef = db.collection('automation_runs').doc(jobId);
-  await runRef.set({ id: jobId, jobId, automationId: job.automationId, workflowId, workflowVersion, companyId, status: 'running', attempts: job.attempts, startedAt: now(), updatedAt: now() }, { merge: true });
+  const executionId = jobId;
+  const runRef = db.collection('automation_runs').doc(executionId);
+  await runRef.set({ id: executionId, jobId, automationId: job.automationId, workflowId, workflowVersion, companyId, status: 'running', attempts: job.attempts, startedAt: now(), updatedAt: now() }, { merge: true });
   try {
     for (const step of workflow.data.steps) {
       const stepRef = runRef.collection('steps').doc(step.id);
-      const stepState = await stepRef.get(); if (stepState.data()?.status === 'succeeded') continue;
-      await db.runTransaction(async (transaction) => { const current = await transaction.get(stepRef); if (current.data()?.status === 'succeeded') return; transaction.set(stepRef, { stepId: step.id, status: 'running', attempts: Number(current.data()?.attempts ?? 0) + 1, updatedAt: now() }, { merge: true }); });
-      try { await executeStep(companyId, jobId, step, (job.payload && typeof job.payload === 'object') ? job.payload as Record<string, unknown> : {}); await stepRef.set({ status: 'succeeded', finishedAt: now(), updatedAt: now(), error: admin.firestore.FieldValue.delete() }, { merge: true }); }
-      catch (error) { await stepRef.set({ status: 'failed', error: error instanceof Error ? error.message : 'STEP_FAILED', updatedAt: now() }, { merge: true }); throw error; }
+      const stepState = await stepRef.get();
+      if (stepState.data()?.status === 'succeeded') continue;
+      const receipt = await db.collection('automation_step_receipts').doc(stepReceiptId(jobId, executionId, step.id)).get();
+      if (receipt.exists && receipt.data()?.status === 'completed') {
+        await stepRef.set({ stepId: step.id, status: 'succeeded', recoveredFromReceipt: true, updatedAt: now() }, { merge: true });
+        continue;
+      }
+      await db.runTransaction(async (transaction) => {
+        const current = await transaction.get(stepRef);
+        if (current.data()?.status === 'succeeded') return;
+        transaction.set(stepRef, { stepId: step.id, status: 'running', attempts: Number(current.data()?.attempts ?? 0) + 1, updatedAt: now() }, { merge: true });
+      });
+      try {
+        const result = await executeStep(companyId, jobId, executionId, step, (job.payload && typeof job.payload === 'object') ? job.payload as Record<string, unknown> : {});
+        await stepRef.set({ status: 'succeeded', result, finishedAt: now(), updatedAt: now(), error: admin.firestore.FieldValue.delete() }, { merge: true });
+      } catch (error) {
+        await stepRef.set({ status: 'failed', error: error instanceof Error ? error.message : 'STEP_FAILED', updatedAt: now() }, { merge: true });
+        throw error;
+      }
     }
     await runRef.set({ status: 'succeeded', finishedAt: now(), updatedAt: now() }, { merge: true });
-  } catch (error) { await runRef.set({ status: 'failed', error: error instanceof Error ? error.message : 'RUN_FAILED', updatedAt: now() }, { merge: true }); throw error; }
+  } catch (error) {
+    await runRef.set({ status: 'failed', error: error instanceof Error ? error.message : 'RUN_FAILED', updatedAt: now() }, { merge: true });
+    throw error;
+  }
 }
 async function processQueue(): Promise<void> {
   const pending = await db.collection('automation_jobs').where('status', '==', 'pending').limit(MAX_JOBS_PER_TICK).get();

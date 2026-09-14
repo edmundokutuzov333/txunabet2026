@@ -10,6 +10,7 @@ import Stripe from 'stripe';
 
 if (!admin.apps?.length) admin.initializeApp();
 export { automationWorker, triggerAutomationEvent, runAutomationNow } from './automation-engine';
+export { domainEventOutboxWorker } from './domain-event-outbox';
 const db = admin.firestore();
 const REGION = 'africa-south1';
 const stripeApiKey = defineSecret('STRIPE_API_KEY');
@@ -77,7 +78,7 @@ export class OrderService {
     if (!hasStock) throw new HttpsError('failed-precondition', `Item ${orderData.itemId} is out of stock.`);
     const totalAmount = orderData.amount + taxAmount;
     const paymentIntent = await this.stripe.paymentIntents.create({ amount: totalAmount, currency: orderData.currency, payment_method: orderData.paymentMethodId, confirm: true, automatic_payment_methods: { enabled: true, allow_redirects: 'never' }, metadata: { firebaseUid: orderData.customerId, companyId: orderData.companyId, itemId: orderData.itemId, quantity: String(orderData.quantity), tax_amount: String(taxAmount) } });
-    await db.collection('transactions').doc(paymentIntent.id).set({ id: paymentIntent.id, companyId: orderData.companyId, userId: orderData.customerId, externalId: paymentIntent.id, source: 'stripe', amount: totalAmount, currency: orderData.currency, status: paymentIntent.status === 'succeeded' ? 'succeeded' : 'pending', createdAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp(), metadata: { itemId: orderData.itemId, quantity: String(orderData.quantity), taxAmount: String(taxAmount) } });
+    await db.collection('transactions').doc(paymentIntent.id).set({ id: paymentIntent.id, companyId: orderData.companyId, userId: orderData.customerId, externalId: paymentIntent.id, source: 'stripe', amount: totalAmount, currency: orderData.currency, status: paymentIntent.status === 'succeeded' ? 'succeeded' : 'pending', createdAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp(), metadata: { itemId: orderData.itemId, quantity: String(orderData.quantity), taxAmount: String(taxAmount) });
     return { clientSecret: paymentIntent.client_secret, status: paymentIntent.status, totalAmount };
   }
 }
