@@ -1,122 +1,146 @@
-
 'use client';
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { users } from "@/lib/data";
-import { PlaceHolderImages } from "@/lib/placeholder-images";
-import { Mail, MapPin, Phone, MessageSquare, Video } from "lucide-react";
-import { useMemo } from "react";
-import Link from 'next/link';
 
-const statusClasses: { [key: string]: { bg: string, text: string } } = {
-  online: { bg: 'bg-success-500', text: 'text-success-500' },
-  away: { bg: 'bg-yellow-500', text: 'text-yellow-500' },
-  busy: { bg: 'bg-red-500', text: 'text-red-500' },
-  dnd: { bg: 'bg-purple-500', text: 'text-purple-500' },
-  offline: { bg: 'bg-slate-500', text: 'text-slate-400' },
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { Mail, MessageSquare, Video } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+type DirectoryMember = {
+  uid: string;
+  displayName: string;
+  email?: string | null;
+  photoURL?: string | null;
+  role?: string;
+  departmentIds?: string[];
 };
 
-const roleHierarchy = [
-    "Diretor de Operações (COO)", "Diretora Financeira (CFO)", "Conselheiro Geral", "Chefe de Estratégia",
-    "Administrador", "Chefe de Compliance", "Chefe de Operações", "Chefe de Dept.",
-    "Controller", "Tesoureira", "Gestora de RH", "Especialista em Cibersegurança",
-    "Engenheiro de DevOps", "Administradora de Sistemas", "Gestora de Projetos de Operações",
-    "Oficial de Compliance Sénior", "Engenheiro de Software Sénior", "Lead Designer",
-    "Especialista de Recrutamento", "Assistente Executiva", "Auditor de Compliance",
-    "Analista de Risco", "Analista Financeiro", "Analista de Contabilidade",
-    "Especialista em Prevenção à Lavagem de Dinheiro", "Analista Regulatório", "Analista de KYC",
-    "Gestor de Conteúdo", "Analista de Marketing Digital", "Analista de Processos",
-    "Gestor de Logística", "Técnica de RH", "Analista de Segurança SOC",
-    "Analista de Qualidade", "Especialista em Melhoria Contínua", "Coordenador de Turno",
-    "Engenheiro de Software Júnior",
-];
-
-const sortUsers = (usersToSort: typeof users) => {
-    return [...usersToSort].sort((a, b) => {
-        const roleAIndex = roleHierarchy.indexOf(a.role);
-        const roleBIndex = roleHierarchy.indexOf(b.role);
-
-        const effectiveRoleAIndex = roleAIndex === -1 ? Infinity : roleAIndex;
-        const effectiveRoleBIndex = roleBIndex === -1 ? Infinity : roleBIndex;
-
-        if (effectiveRoleAIndex !== effectiveRoleBIndex) {
-            return effectiveRoleAIndex - effectiveRoleBIndex;
-        }
-        return a.name.localeCompare(b.name);
-    });
+const roleRank: Record<string, number> = {
+  owner: 0,
+  admin: 1,
+  manager: 2,
+  member: 3,
+  viewer: 4,
 };
 
 export default function TeamPage() {
-    const teamByDept = useMemo(() => {
-        const grouped: { [key: string]: typeof users } = {};
-        users.forEach(user => {
-            if (!grouped[user.department]) {
-                grouped[user.department] = [];
-            }
-            grouped[user.department].push(user);
-        });
-        
-        for (const dept in grouped) {
-            grouped[dept] = sortUsers(grouped[dept]);
-        }
+  const [members, setMembers] = useState<DirectoryMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-        return Object.entries(grouped).sort(([deptA], [deptB]) => {
-            if (deptA === 'Administração') return -1;
-            if (deptB === 'Administração') return 1;
-            return deptA.localeCompare(deptB);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch('/api/users/directory', {
+          credentials: 'include',
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
         });
-    }, []);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(typeof payload?.error === 'string' ? payload.error : `Não foi possível carregar a equipa (${response.status}).`);
+        }
+        const nextMembers = Array.isArray(payload.members) ? payload.members as DirectoryMember[] : [];
+        if (!cancelled) setMembers(nextMembers);
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Não foi possível carregar a equipa.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const sortedMembers = useMemo(
+    () => [...members].sort((a, b) => {
+      const rankA = roleRank[(a.role ?? 'member').toLowerCase()] ?? 99;
+      const rankB = roleRank[(b.role ?? 'member').toLowerCase()] ?? 99;
+      if (rankA !== rankB) return rankA - rankB;
+      return a.displayName.localeCompare(b.displayName);
+    }),
+    [members],
+  );
 
   return (
     <div className="p-6 fade-in">
-        <h1 className="text-3xl font-bold text-foreground mb-8">A Nossa Equipa</h1>
-        {teamByDept.map(([department, members]) => (
-            <div key={department} className="mb-12">
-                <h2 className="text-2xl font-semibold text-foreground mb-6 border-b-2 border-primary/20 pb-2">{department}</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {members.map(user => {
-                        const avatar = PlaceHolderImages.find(p => p.id === `user-avatar-${user.id}`)?.imageUrl;
-                        const statusStyle = statusClasses[user.status];
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">A Nossa Equipa</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Colaboradores activos da empresa, carregados directamente do backend.</p>
+        </div>
+        {!loading && <div className="rounded-full border border-border/70 bg-card/40 px-3 py-1 text-xs text-muted-foreground">{members.length} colaboradores</div>}
+      </div>
 
-                        return (
-                            <Card key={user.id} className="gradient-surface border-0 rounded-2xl text-center flex flex-col items-center p-6 transition-all hover:shadow-primary/20 hover:shadow-2xl hover:-translate-y-1">
-                                <CardHeader className="p-0 items-center">
-                                    <div className="relative mb-4">
-                                        <Avatar className="w-24 h-24 border-4 border-background">
-                                            <AvatarImage src={avatar} alt={user.name} data-ai-hint="person portrait" />
-                                            <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-                                        </Avatar>
-                                        <span className={`absolute bottom-1 right-1 block h-4 w-4 rounded-full ${statusStyle.bg} ring-4 ring-background`}></span>
-                                    </div>
-                                    <CardTitle className="text-lg font-bold text-foreground">{user.name}</CardTitle>
-                                    <p className={`text-sm font-medium ${statusStyle.text}`}>{user.role}</p>
-                                </CardHeader>
-                                <CardContent className="p-0 mt-4 text-center text-sm text-muted-foreground space-y-2 w-full break-words">
-                                    <div className="flex items-center justify-center gap-2">
-                                        <Mail className="w-4 h-4 text-muted-foreground/80 shrink-0" />
-                                        <span>{user.email}</span>
-                                    </div>
-                                </CardContent>
-                                <div className="mt-6 flex space-x-3">
-                                    <Link href={`/dashboard/chat/direct/${user.id}`}>
-                                        <Button variant="outline" size="icon" className="bg-card/50 border-border hover:bg-card rounded-full h-11 w-11">
-                                            <MessageSquare />
-                                        </Button>
-                                    </Link>
-                                     <Link href={`/dashboard/call/${user.id}?type=video`}>
-                                        <Button variant="outline" size="icon" className="bg-card/50 border-border hover:bg-card rounded-full h-11 w-11">
-                                            <Video />
-                                        </Button>
-                                    </Link>
-                                </div>
-                            </Card>
-                        )
-                    })}
+      {loading ? (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" aria-busy="true">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Card key={index} className="gradient-surface border-0 rounded-2xl p-6">
+              <div className="mx-auto h-24 w-24 animate-pulse rounded-full bg-muted/40" />
+              <div className="mx-auto mt-5 h-5 w-32 animate-pulse rounded bg-muted/40" />
+              <div className="mx-auto mt-3 h-4 w-24 animate-pulse rounded bg-muted/30" />
+              <div className="mx-auto mt-6 h-4 w-44 animate-pulse rounded bg-muted/25" />
+            </Card>
+          ))}
+        </div>
+      ) : error ? (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="p-6 text-sm text-destructive" role="alert">{error}</CardContent>
+        </Card>
+      ) : sortedMembers.length === 0 ? (
+        <Card className="gradient-surface border-0 rounded-2xl">
+          <CardContent className="p-10 text-center text-sm text-muted-foreground">
+            Ainda não existem outros colaboradores activos registados na empresa.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {sortedMembers.map((member) => {
+            const fallback = member.displayName?.trim().charAt(0).toUpperCase() || '?';
+            const departmentLabel = member.departmentIds?.length ? member.departmentIds.join(', ') : 'Sem departamento';
+            return (
+              <Card key={member.uid} className="gradient-surface border-0 rounded-2xl text-center flex flex-col items-center p-6 transition-all hover:-translate-y-1 hover:shadow-2xl">
+                <CardHeader className="p-0 items-center">
+                  <div className="relative mb-4">
+                    <Avatar className="h-24 w-24 border-4 border-background">
+                      <AvatarImage src={member.photoURL ?? undefined} alt={member.displayName} />
+                      <AvatarFallback>{fallback}</AvatarFallback>
+                    </Avatar>
+                    <span className="absolute bottom-1 right-1 block h-4 w-4 rounded-full bg-slate-500 ring-4 ring-background" title="Estado indisponível" />
+                  </div>
+                  <CardTitle className="text-lg font-bold text-foreground">{member.displayName}</CardTitle>
+                  <p className="text-sm font-medium text-primary">{member.role ?? 'Colaborador'}</p>
+                </CardHeader>
+                <CardContent className="mt-4 w-full space-y-2 break-words p-0 text-center text-sm text-muted-foreground">
+                  <div className="flex items-center justify-center gap-2">
+                    <Mail className="h-4 w-4 shrink-0" />
+                    <span>{member.email ?? 'Sem email disponível'}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground/80">{departmentLabel}</p>
+                </CardContent>
+                <div className="mt-6 flex gap-3">
+                  <Link href={`/dashboard/chat/direct/${member.uid}`}>
+                    <Button variant="outline" size="icon" className="h-11 w-11 rounded-full bg-card/50">
+                      <MessageSquare className="h-4 w-4" />
+                      <span className="sr-only">Enviar mensagem</span>
+                    </Button>
+                  </Link>
+                  <Link href={`/dashboard/call/${member.uid}?type=video`}>
+                    <Button variant="outline" size="icon" className="h-11 w-11 rounded-full bg-card/50">
+                      <Video className="h-4 w-4" />
+                      <span className="sr-only">Iniciar chamada</span>
+                    </Button>
+                  </Link>
                 </div>
-            </div>
-        ))}
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
