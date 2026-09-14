@@ -6,11 +6,13 @@ import OryonConnectionStatus from '@/components/layout/oryon-connection-status';
 import WebMetrics from '@/components/observability/web-metrics';
 import { requireIdentity } from '@/server/authorization';
 import { ensureDemoData } from '@/server/services/demo-seed';
+import { ensureDemoDataExtra } from '@/server/services/demo-seed-extra';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   try {
     const identity = await requireIdentity();
     await ensureDemoData(identity);
+    await ensureDemoDataExtra(identity);
   } catch {
     redirect('/login');
   }
