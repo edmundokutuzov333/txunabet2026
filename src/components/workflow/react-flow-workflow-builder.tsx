@@ -64,21 +64,29 @@ type VisualWorkflow = {
   };
 };
 
-type FlowData = {
+type FlowNodeData = {
   label: string;
   type: string;
   config: Record<string, unknown>;
 };
 
-type FlowNode = Node<FlowData>;
+type FlowNode = Node<FlowNodeData>;
+
+type SaveResult = {
+  id: string;
+  version?: number;
+};
 
 type PublishResult = {
+  visualId?: string;
   workflowId?: string;
   automationId?: string;
   workflowVersion?: number;
 };
 
-type SaveResult = VisualWorkflow;
+type RunResult = {
+  jobId?: string;
+};
 
 async function fetchVisualWorkflows(): Promise<VisualWorkflow[]> {
   const response = await fetch('/api/workflow-platform?resource=visual-workflows', {
@@ -86,9 +94,7 @@ async function fetchVisualWorkflows(): Promise<VisualWorkflow[]> {
     credentials: 'include',
   });
   const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload.error ?? 'Falha ao carregar workflows.');
-  }
+  if (!response.ok) throw new Error(payload.error ?? 'Falha ao carregar workflows.');
   return Array.isArray(payload.data) ? (payload.data as VisualWorkflow[]) : [];
 }
 
@@ -133,13 +139,12 @@ export default function ReactFlowWorkflowBuilder() {
   const [selectedWorkflow, setSelectedWorkflow] = useState<VisualWorkflow | null>(null);
   const [name, setName] = useState('Novo workflow visual');
   const [description, setDescription] = useState('');
-  const [nodes, setNodes, onNodesChange] = useNodesState<FlowData>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [counter, setCounter] = useState(0);
 
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null;
-
   const graph = useMemo(
     () => ({
       nodes: nodes.map((node) => ({
@@ -169,56 +174,52 @@ export default function ReactFlowWorkflowBuilder() {
         body: JSON.stringify({
           action: 'visual.save',
           id: selectedWorkflow?.id,
-          input: {
-            name,
-            description,
-            active: true,
-            graph,
-          },
+          input: { name, description, active: true, graph },
         }),
       });
       const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error ?? 'Falha ao guardar workflow.');
-      }
+      if (!response.ok) throw new Error(payload.error ?? 'Falha ao guardar workflow.');
       return payload.data as SaveResult;
     },
-    onSuccess: async (workflow) => {
-      setSelectedWorkflow(workflow);
-      toast({
-        title: 'Workflow guardado',
-        description: `Versão ${workflow.version ?? 'n/a'}`,
-      });
+    onSuccess: async (result) => {
+      setSelectedWorkflow((current) => ({
+        id: result.id,
+        name: current?.name ?? name,
+        description: current?.description ?? description,
+        version: result.version,
+        workflowId: current?.workflowId,
+        automationId: current?.automationId,
+        graph,
+      }));
+      toast({ title: 'Workflow guardado', description: `Versão ${result.version ?? 'n/a'}` });
       await queryClient.invalidateQueries({ queryKey: ['visual-workflows'] });
     },
-    onError: (error) =>
-      toast({ variant: 'destructive', title: 'Erro', description: error.message }),
+    onError: (error) => toast({ variant: 'destructive', title: 'Erro', description: error.message }),
   });
 
   const publish = useMutation<PublishResult, Error, string>({
-    mutationFn: async (workflowId) => {
+    mutationFn: async (id) => {
       const response = await fetch('/api/workflow-platform', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ action: 'visual.publish', id: workflowId }),
+        body: JSON.stringify({ action: 'visual.publish', id }),
       });
       const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error ?? 'Falha ao publicar.');
-      }
+      if (!response.ok) throw new Error(payload.error ?? 'Falha ao publicar.');
       return payload.data as PublishResult;
     },
-    onSuccess: (payload) =>
-      toast({
-        title: 'Publicado',
-        description: `Workflow ${payload.workflowId ?? 'n/a'} · automation ${payload.automationId ?? 'n/a'}`,
-      }),
-    onError: (error) =>
-      toast({ variant: 'destructive', title: 'Publicação falhou', description: error.message }),
+    onSuccess: (result) => {
+      setSelectedWorkflow((current) => current
+        ? { ...current, workflowId: result.workflowId, automationId: result.automationId, version: result.workflowVersion ?? current.version }
+        : current);
+      toast({ title: 'Publicado', description: `Workflow ${result.workflowId ?? 'n/a'} · automation ${result.automationId ?? 'n/a'}` });
+      void queryClient.invalidateQueries({ queryKey: ['visual-workflows'] });
+    },
+    onError: (error) => toast({ variant: 'destructive', title: 'Publicação falhou', description: error.message }),
   });
 
-  const run = useMutation<{ jobId?: string }, Error, string>({
+  const run = useMutation<RunResult, Error, string>({
     mutationFn: async (automationId) => {
       const response = await fetch('/api/workflow-platform', {
         method: 'POST',
@@ -231,15 +232,11 @@ export default function ReactFlowWorkflowBuilder() {
         }),
       });
       const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error ?? 'Falha no test run.');
-      }
-      return payload.data as { jobId?: string };
+      if (!response.ok) throw new Error(payload.error ?? 'Falha no test run.');
+      return payload.data as RunResult;
     },
-    onSuccess: (payload) =>
-      toast({ title: 'Test run colocado na fila', description: `Job ${payload.jobId ?? 'n/a'}` }),
-    onError: (error) =>
-      toast({ variant: 'destructive', title: 'Test run falhou', description: error.message }),
+    onSuccess: (result) => toast({ title: 'Test run colocado na fila', description: `Job ${result.jobId ?? 'n/a'}` }),
+    onError: (error) => toast({ variant: 'destructive', title: 'Test run falhou', description: error.message }),
   });
 
   const reset = () => {
@@ -264,58 +261,35 @@ export default function ReactFlowWorkflowBuilder() {
   const addNode = (type: string) => {
     const id = `rf_${Date.now()}_${counter + 1}`;
     setCounter((value) => value + 1);
-    const paletteItem = PALETTE.find(([key]) => key === type);
+    const item = PALETTE.find(([key]) => key === type);
     setNodes((current) => [
       ...current,
       {
         id,
-        position: {
-          x: 80 + (current.length % 3) * 240,
-          y: 80 + Math.floor(current.length / 3) * 140,
-        },
-        data: {
-          label: paletteItem?.[1] ?? type,
-          type,
-          config: {},
-        },
+        position: { x: 80 + (current.length % 3) * 240, y: 80 + Math.floor(current.length / 3) * 140 },
+        data: { label: String(item?.[1] ?? type), type, config: {} },
       },
     ]);
     setSelectedNodeId(id);
   };
 
-  const patchNode = (patch: Partial<FlowData>) => {
+  const patchNode = (patch: Partial<FlowNodeData>) => {
     if (!selectedNodeId) return;
-    setNodes((current) =>
-      current.map((node) =>
-        node.id === selectedNodeId
-          ? { ...node, data: { ...node.data, ...patch } }
-          : node,
-      ),
-    );
+    setNodes((current) => current.map((node) => (
+      node.id === selectedNodeId ? { ...node, data: { ...node.data, ...patch } } : node
+    )));
   };
 
   const patchConfig = (key: string, value: string) => {
     if (!selectedNodeId) return;
-    setNodes((current) =>
-      current.map((node) => {
-        if (node.id !== selectedNodeId) return node;
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            config: {
-              ...node.data.config,
-              [key]: value,
-            },
-          },
-        };
-      }),
-    );
+    setNodes((current) => current.map((node) => (
+      node.id === selectedNodeId
+        ? { ...node, data: { ...node.data, config: { ...node.data.config, [key]: value } } }
+        : node
+    )));
   };
 
-  const onConnect = (connection: Connection) => {
-    setEdges((current) => addEdge({ ...connection, animated: false }, current));
-  };
+  const onConnect = (connection: Connection) => setEdges((current) => addEdge({ ...connection, animated: false }, current));
 
   return (
     <div className="grid gap-4">
@@ -323,40 +297,13 @@ export default function ReactFlowWorkflowBuilder() {
         <div>
           <p className="text-label text-primary">Automate</p>
           <h1 className="mt-1 text-h1">Workflow Builder</h1>
-          <p className="mt-1 text-body-small text-muted-foreground">
-            Canvas visual único do Oryon. Trigger, logic, action, condition e wait, com persistência real.
-          </p>
+          <p className="mt-1 text-body-small text-muted-foreground">Canvas visual único do Oryon. Trigger, logic, action, condition e wait, com persistência real.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <OryonButton variant="outline" size="sm" onClick={reset}>
-            <Plus className="h-3.5 w-3.5" />
-            Novo
-          </OryonButton>
-          <OryonButton size="sm" onClick={() => save.mutate()} disabled={save.isPending}>
-            <Save className="h-3.5 w-3.5" />
-            {save.isPending ? 'A guardar…' : 'Guardar'}
-          </OryonButton>
-          {selectedWorkflow?.id ? (
-            <OryonButton
-              variant="secondary"
-              size="sm"
-              onClick={() => publish.mutate(selectedWorkflow.id)}
-              disabled={publish.isPending}
-            >
-              Publicar
-            </OryonButton>
-          ) : null}
-          {selectedWorkflow?.automationId ? (
-            <OryonButton
-              variant="outline"
-              size="sm"
-              onClick={() => run.mutate(selectedWorkflow.automationId!)}
-              disabled={run.isPending}
-            >
-              <Play className="h-3.5 w-3.5" />
-              Test run
-            </OryonButton>
-          ) : null}
+          <OryonButton variant="outline" size="sm" onClick={reset}><Plus className="h-3.5 w-3.5" />Novo</OryonButton>
+          <OryonButton size="sm" onClick={() => save.mutate()} disabled={save.isPending}><Save className="h-3.5 w-3.5" />{save.isPending ? 'A guardar…' : 'Guardar'}</OryonButton>
+          {selectedWorkflow?.id ? <OryonButton variant="secondary" size="sm" onClick={() => publish.mutate(selectedWorkflow.id)} disabled={publish.isPending}>Publicar</OryonButton> : null}
+          {selectedWorkflow?.automationId ? <OryonButton variant="outline" size="sm" onClick={() => run.mutate(selectedWorkflow.automationId!)} disabled={run.isPending}><Play className="h-3.5 w-3.5" />Test run</OryonButton> : null}
         </div>
       </div>
 
@@ -365,12 +312,7 @@ export default function ReactFlowWorkflowBuilder() {
           <p className="px-2 py-2 text-label">Node library</p>
           <div className="grid gap-1.5 overflow-y-auto pr-1 custom-scrollbar">
             {PALETTE.map(([type, label, Icon]) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => addNode(type)}
-                className="flex items-center gap-2 rounded-[8px] border border-transparent bg-surface-1 px-2.5 py-2 text-left text-[11px] text-muted-foreground hover:border-border hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
-              >
+              <button key={type} type="button" onClick={() => addNode(type)} className="flex items-center gap-2 rounded-[8px] border border-transparent bg-surface-1 px-2.5 py-2 text-left text-[11px] text-muted-foreground hover:border-border hover:bg-surface-2 hover:text-foreground">
                 <Icon className="h-3.5 w-3.5 text-primary" />
                 <span className="min-w-0 flex-1 truncate">{label}</span>
               </button>
@@ -380,27 +322,11 @@ export default function ReactFlowWorkflowBuilder() {
 
         <OryonPanel className="h-[640px] overflow-hidden p-0">
           <div className="flex h-11 items-center justify-between border-b border-border px-3">
-            <div>
-              <p className="text-label">Canvas</p>
-              <p className="text-[10px] text-muted-foreground">
-                {nodes.length} nodes · {edges.length} connections
-              </p>
-            </div>
-            <div className="flex gap-1.5">
-              <OryonBadge>React Flow</OryonBadge>
-              <OryonBadge tone="accent">Live graph</OryonBadge>
-            </div>
+            <div><p className="text-label">Canvas</p><p className="text-[10px] text-muted-foreground">{nodes.length} nodes · {edges.length} connections</p></div>
+            <div className="flex gap-1.5"><OryonBadge>React Flow</OryonBadge><OryonBadge tone="accent">Live graph</OryonBadge></div>
           </div>
           <div className="h-[596px]">
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-              fitView
-            >
+            <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} fitView>
               <Background gap={24} size={1} />
               <MiniMap />
               <Controls />
@@ -411,113 +337,32 @@ export default function ReactFlowWorkflowBuilder() {
         <OryonPanel className="h-[640px] overflow-hidden p-0">
           <div className="flex h-11 items-center justify-between border-b border-border px-4">
             <p className="text-label">Inspector</p>
-            {selectedNode ? (
-              <OryonButton
-                variant="ghost"
-                size="icon"
-                onClick={() => setSelectedNodeId(null)}
-                aria-label="Fechar inspector"
-              >
-                <X className="h-3.5 w-3.5" />
-              </OryonButton>
-            ) : null}
+            {selectedNode ? <OryonButton variant="ghost" size="icon" onClick={() => setSelectedNodeId(null)} aria-label="Fechar inspector"><X className="h-3.5 w-3.5" /></OryonButton> : null}
           </div>
           <div className="h-[596px] overflow-y-auto p-4 custom-scrollbar">
             {selectedNode ? (
               <div className="grid gap-4">
-                <div>
-                  <p className="text-[12px] font-semibold text-foreground">{selectedNode.data.label}</p>
-                  <p className="mt-1 text-[10px] text-muted-foreground">{selectedNode.data.type}</p>
-                </div>
-                <OryonInput
-                  label="Label"
-                  value={selectedNode.data.label}
-                  onChange={(event) => patchNode({ label: event.target.value })}
-                />
-                <OryonSelect
-                  label="Node type"
-                  value={selectedNode.data.type}
-                  onChange={(event) => patchNode({ type: event.target.value })}
-                >
-                  {PALETTE.map(([type, label]) => (
-                    <option key={type} value={type}>
-                      {label}
-                    </option>
-                  ))}
-                </OryonSelect>
-                <OryonInput
-                  label="Reference"
-                  value={String(selectedNode.data.config.reference ?? '')}
-                  onChange={(event) => patchConfig('reference', event.target.value)}
-                  placeholder="payload.reference"
-                />
-                <OryonInput
-                  label="Value / target"
-                  value={String(selectedNode.data.config.value ?? '')}
-                  onChange={(event) => patchConfig('value', event.target.value)}
-                  placeholder="Ex.: task.completed"
-                />
-                <OryonButton
-                  variant="danger"
-                  onClick={() => {
-                    setNodes((current) => current.filter((node) => node.id !== selectedNodeId));
-                    setSelectedNodeId(null);
-                  }}
-                >
-                  Remover node
-                </OryonButton>
+                <div><p className="text-[12px] font-semibold text-foreground">{selectedNode.data.label}</p><p className="mt-1 text-[10px] text-muted-foreground">{selectedNode.data.type}</p></div>
+                <OryonInput label="Label" value={selectedNode.data.label} onChange={(event) => patchNode({ label: event.target.value })} />
+                <OryonSelect label="Node type" value={selectedNode.data.type} onChange={(event) => patchNode({ type: event.target.value })}>{PALETTE.map(([type, label]) => <option key={type} value={type}>{label}</option>)}</OryonSelect>
+                <OryonInput label="Reference" value={String(selectedNode.data.config.reference ?? '')} onChange={(event) => patchConfig('reference', event.target.value)} placeholder="payload.reference" />
+                <OryonInput label="Value / target" value={String(selectedNode.data.config.value ?? '')} onChange={(event) => patchConfig('value', event.target.value)} placeholder="Ex.: task.completed" />
+                <OryonButton variant="danger" onClick={() => { setNodes((current) => current.filter((node) => node.id !== selectedNodeId)); setSelectedNodeId(null); }}>Remover node</OryonButton>
               </div>
             ) : (
-              <OryonEmptyState
-                icon={<GitBranch className="h-5 w-5" />}
-                title="Select a node"
-                description="Escolha um elemento no canvas para configurar os seus parâmetros."
-              />
+              <OryonEmptyState icon={<GitBranch className="h-5 w-5" />} title="Select a node" description="Escolha um elemento no canvas para configurar os seus parâmetros." />
             )}
           </div>
         </OryonPanel>
       </div>
 
       <OryonPanel className="p-4">
-        <div className="grid gap-2 lg:grid-cols-2">
-          <OryonInput
-            label="Nome do workflow"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Nome"
-          />
-          <label className="grid gap-1.5">
-            <span className="text-label text-foreground">Descrição</span>
-            <textarea
-              className="min-h-9 w-full rounded-[8px] border border-border bg-surface-1 px-3 py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/65 focus:border-primary/70 focus:outline-none focus:ring-2 focus:ring-primary/30"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Descrição do workflow"
-            />
-          </label>
+        <div className="grid gap-2 lg:grid-cols-[1fr_1fr_260px]">
+          <OryonInput label="Nome do workflow" value={name} onChange={(event) => setName(event.target.value)} placeholder="Nome" />
+          <label className="grid gap-1.5"><span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Descrição</span><textarea className="min-h-9 w-full rounded-[8px] border border-border bg-surface-1 px-3 py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/65 focus:border-primary/70" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Descrição do workflow" /></label>
+          <div className="rounded-[8px] border border-border bg-surface-1 p-3"><p className="text-label">Workflows existentes</p><div className="mt-2 max-h-32 space-y-1 overflow-y-auto">{workflows.isLoading ? <p className="text-xs text-muted-foreground">A carregar…</p> : workflows.data?.map((workflow) => <button key={workflow.id} type="button" onClick={() => edit(workflow)} className="block w-full truncate rounded px-2 py-1 text-left text-xs hover:bg-surface-2">{workflow.name}</button>)}</div></div>
         </div>
       </OryonPanel>
-
-      {workflows.data?.length ? (
-        <OryonPanel className="p-3">
-          <p className="text-label">Saved workflows</p>
-          <div className="mt-2 grid gap-1.5 md:grid-cols-2 xl:grid-cols-3">
-            {workflows.data.map((workflow) => (
-              <button
-                key={workflow.id}
-                type="button"
-                onClick={() => edit(workflow)}
-                className="rounded-[8px] border border-border bg-surface-1 p-3 text-left hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
-              >
-                <p className="text-[12px] font-medium text-foreground">{workflow.name}</p>
-                <p className="mt-1 text-[10px] text-muted-foreground">
-                  v{workflow.version ?? 1} · {workflow.automationId ? 'published' : 'draft'}
-                </p>
-              </button>
-            ))}
-          </div>
-        </OryonPanel>
-      ) : null}
     </div>
   );
 }
