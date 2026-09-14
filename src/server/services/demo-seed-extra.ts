@@ -27,7 +27,7 @@ export async function ensureDemoDataExtra(identity: AuthenticatedIdentity) {
   const db = getAdminDb();
   const marker = db.collection('companies').doc(identity.companyId).collection('system').doc('demo-extra-seed');
   const current = await marker.get();
-  if (current.exists && Number(current.data()?.version) >= 3) return;
+  if (current.exists && Number(current.data()?.version) >= 4) return;
   const ts = FieldValue.serverTimestamp();
   const common = { companyId: identity.companyId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: ts, updatedAt: ts, status: 'active', version: 1 };
 
@@ -46,7 +46,18 @@ export async function ensureDemoDataExtra(identity: AuthenticatedIdentity) {
   await seed(db, 'capacity_allocations', Array.from({ length: 36 }, (_, i) => ({ ...common, id: `demo-capacity-${i + 1}`, userId: identity.uid, projectId: `demo-project-${(i % 12) + 1}`, weekStart: new Date(Date.now() - 86400000 * 2).toISOString().slice(0, 10), availableHours: 40, allocatedHours: 24 + (i % 14) })));
   await seed(db, 'time_entries', Array.from({ length: 36 }, (_, i) => ({ ...common, id: `demo-time-${i + 1}`, projectId: `demo-project-${(i % 12) + 1}`, taskId: `demo-task-${(i % 72) + 1}`, startedAt: new Date(Date.now() - 86400000 * (i % 8)).toISOString(), endedAt: new Date(Date.now() - 86400000 * (i % 8) + 3600000).toISOString(), minutes: 45 + (i % 4) * 15, note: 'Registo de trabalho operacional.' })));
   await seed(db, 'project_milestones', Array.from({ length: 18 }, (_, i) => ({ ...common, id: `demo-milestone-${i + 1}`, projectId: `demo-project-${(i % 12) + 1}`, title: ['Discovery complete','Trading rules approved','PSP UAT','Security sign-off','Go-live'][i % 5], varianceDays: (i % 7) - 2, dueDate: new Date(Date.now() + 86400000 * (i + 3)).toISOString() })));
-  await seed(db, 'projects', Array.from({ length: 12 }, (_, i) => ({ departmentId: `demo-dept-${BET_DEPARTMENTS[i % BET_DEPARTMENTS.length][0]}`, id: `demo-project-${i + 1}` })));
+  await seed(db, 'projects', Array.from({ length: 12 }, (_, i) => ({ id: `demo-project-${i + 1}`, departmentId: `demo-dept-${BET_DEPARTMENTS[i % BET_DEPARTMENTS.length][0]}` })));
 
-  await marker.set({ version: 3, seededAt: ts, seededBy: identity.uid, note: 'Firestore-safe extra operating dataset' }, { merge: true });
+  await seed(db, 'module_tasks', Array.from({ length: 12 }, (_, i) => ({ id: `demo-task-${i + 1}`, assignedTo: [identity.uid], ownerId: identity.uid, dueDate: new Date(Date.now() + (i % 5 === 0 ? -86400000 : i * 3600000)).toISOString() })));
+
+  await seed(db, 'approvals', Array.from({ length: 14 }, (_, i) => ({ ...common, id: `demo-approval-${i + 1}`, title: ['Payout excepcional','Mudança de odds','Nova campanha','Fornecedor PSP','Regra AML','Acesso privilegiado','Comissão affiliate','Alteração de limite','Release produção','KYC exception','Refund de alto valor','Nova automação','Contrato comercial','Risk override'][i], description: 'Pedido submetido para revisão interna e auditoria.', state: i % 5 === 0 ? 'APPROVED' : i % 4 === 0 ? 'CHANGES_REQUESTED' : 'PENDING', status: i % 5 === 0 ? 'approved' : i % 4 === 0 ? 'changes_requested' : 'pending', mode: i % 3 === 0 ? 'sequential' : 'single', approverId: identity.uid, requesterId: identity.uid, entityType: ['payment','trading','campaign','compliance','security'][i % 5], entityId: `demo-entity-${i + 1}`, dueDate: new Date(Date.now() + 86400000 * ((i % 5) + 1)).toISOString(), steps: [{ id: `step-${i + 1}`, approverId: identity.uid, status: i % 5 === 0 ? 'APPROVED' : 'PENDING' }] })));
+
+  const notifications = db.collection('notifications').doc(identity.uid).collection('items');
+  const batch = db.batch();
+  for (let i = 0; i < 20; i += 1) {
+    batch.set(notifications.doc(`demo-inbox-${i + 1}`), { id: `demo-inbox-${i + 1}`, companyId: identity.companyId, userId: identity.uid, category: ['task','approval','alert','mention','request'][i % 5], severity: ['info','medium','high','critical'][i % 4], title: ['Nova tarefa crítica','Aprovação pendente','Alerta operacional','Nova menção no Trading','Solicitação de Finance'][i % 5], body: ['Rever exposição pré-live','Payout aguarda decisão','PSP apresenta degradação de 2 minutos','Foste mencionado na revisão de trading','Reconciliação aguarda confirmação'][i % 5], entityType: ['task','approval','incident','trading','payment'][i % 5], entityId: `demo-entity-${i + 1}`, actionUrl: '/dashboard/inbox', read: i > 8, channels: ['in-app'], createdAt: new Date(Date.now() - i * 3600000) }, { merge: true });
+  }
+  await batch.commit();
+
+  await marker.set({ version: 4, seededAt: ts, seededBy: identity.uid, note: 'enriched command center and approval queue' }, { merge: true });
 }
