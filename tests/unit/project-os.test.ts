@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { calculateCapacity, calculateGoalProgress, calculateProjectHealth } from '../../src/server/services/project-os';
+import { calculateCapacity, calculateGoalProgress, calculateProjectHealth } from '../../src/server/services/project-health-core';
 
 test('goal progress is bounded to 0..100', () => {
   assert.equal(calculateGoalProgress(50, 100), 50);
