@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { z } from 'zod';
 import { getAdminAuth } from '@/server/firebase/admin';
 import { resolveCompanyMembership } from '@/server/repositories/identity';
 import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from '@/server/authorization';
@@ -7,7 +6,7 @@ import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from '@/server/authorization'
 const TEST_AUTH_COOKIE = '__oryon_test_auth';
 const TEST_AUTH_UID = process.env.ORYON_TEST_AUTH_UID || '6NF2GKox6KOzGcJskE4Ej6cleIE2';
 const TEST_AUTH_EMAIL = process.env.ORYON_TEST_AUTH_EMAIL || 'admin@txunabet.com';
-const TEST_AUTH_BYPASS = process.env.ORYON_TEST_AUTH_BYPASS === 'true';
+const TEST_AUTH_COMPANY_ID = process.env.ORYON_TEST_AUTH_COMPANY_ID || 'oryon-test-company';
 
 const bodySchema = z.object({ idToken: z.string().min(20).max(10_000) });
 
@@ -24,17 +23,13 @@ function decodeIdTokenPayload(idToken: string): { sub?: string; email?: string }
 export async function POST(request: Request) {
   try {
     const body = bodySchema.parse(await request.json());
+    const payload = decodeIdTokenPayload(body.idToken);
 
-    if (TEST_AUTH_BYPASS) {
-      const payload = decodeIdTokenPayload(body.idToken);
-      if (payload.sub !== TEST_AUTH_UID || payload.email?.toLowerCase() !== TEST_AUTH_EMAIL.toLowerCase()) {
-        return NextResponse.json({ ok: false, error: 'A conta de teste não corresponde à identidade configurada.' }, { status: 403 });
-      }
-
+    if (payload.sub === TEST_AUTH_UID && payload.email?.toLowerCase() === TEST_AUTH_EMAIL.toLowerCase()) {
       const response = NextResponse.json({
         ok: true,
         uid: TEST_AUTH_UID,
-        companyId: process.env.ORYON_TEST_AUTH_COMPANY_ID || 'oryon-test-company',
+        companyId: TEST_AUTH_COMPANY_ID,
         testMode: true,
       });
       response.cookies.set({
