@@ -27,6 +27,7 @@ function notificationDescriptor(event: Record<string, unknown>) {
   const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {};
   if (name === 'task.created' || name === 'task.assigned') return { category: 'assignment', severity: 'medium', title: 'Nova tarefa atribuída', body: String(payload.title ?? 'Uma tarefa foi atribuída a si.') };
   if (name === 'task.overdue') return { category: 'task', severity: 'high', title: 'Tarefa em atraso', body: String(payload.title ?? 'Uma tarefa ultrapassou o prazo.') };
+  if (name === 'meeting.completed') return { category: 'meeting', severity: 'medium', title: 'Reunião concluída', body: String(payload.title ?? 'Uma reunião foi concluída.') };
   if (name === 'approval.requested') return { category: 'approval', severity: 'high', title: 'Aprovação pendente', body: String(payload.title ?? 'Uma aprovação requer a sua atenção.') };
   if (name === 'approval.approved') return { category: 'approval', severity: 'medium', title: 'Aprovação concluída', body: String(payload.title ?? 'Uma aprovação foi aprovada.') };
   if (name === 'approval.rejected') return { category: 'approval', severity: 'high', title: 'Aprovação rejeitada', body: String(payload.title ?? 'Uma aprovação foi rejeitada.') };
@@ -39,58 +40,70 @@ function notificationDescriptor(event: Record<string, unknown>) {
   return { category: 'system', severity: 'info', title: 'Nova atividade', body: String(payload.title ?? name) };
 }
 
+async function materializeMeetingActions(event: Record<string, unknown>): Promise<void> {
+  if (String(event.eventName ?? '') !== 'meeting.completed') return;
+  const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {};
+  const actions = Array.isArray(payload.actionItems) ? payload.actionItems : [];
+  if (!actions.length) return;
+  const companyId = String(event.companyId ?? '');
+  const meetingId = String(event.entityId ?? '');
+  for (let index = 0; index < Math.min(actions.length, 30); index += 1) {
+    const raw = actions[index];
+    const action = typeof raw === 'string' ? { title: raw } : raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const title = String(action.title ?? action.text ?? '').trim();
+    if (!title) continue;
+    const taskId = `meeting_${meetingId}_${index}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 700);
+    const taskRef = db.collection('module_tasks').doc(taskId);
+    await db.runTransaction(async (transaction) => {
+      if ((await transaction.get(taskRef)).exists) return;
+      transaction.create(taskRef, {
+        id: taskId,
+        companyId,
+        createdBy: String(event.actorId ?? ''),
+        updatedBy: String(event.actorId ?? ''),
+        ownerId: typeof action.assigneeId === 'string' ? action.assigneeId : undefined,
+        assigneeId: typeof action.assigneeId === 'string' ? action.assigneeId : undefined,
+        title,
+        description: String(action.description ?? `Action item da reunião ${meetingId}.`),
+        status: 'active',
+        priority: String(action.priority ?? 'medium'),
+        dueDate: typeof action.dueDate === 'string' ? action.dueDate : undefined,
+        meetingId,
+        sourceEventId: String(event.eventId ?? ''),
+        metadata: { source: 'meeting.action-item', meetingId },
+        permissions: {},
+        version: 1,
+        createdAt: now(),
+        updatedAt: now(),
+      });
+    });
+  }
+}
+
 async function materializeEvent(event: Record<string, unknown>): Promise<void> {
   const companyId = String(event.companyId ?? '');
   const eventId = String(event.eventId ?? '');
   if (!companyId || !eventId) throw new Error('INVALID_OUTBOX_EVENT');
-  const [membersSnapshot] = await Promise.all([
-    db.collection('companies').doc(companyId).collection('members').where('status', '==', 'active').limit(500).get(),
-  ]);
+  const membersSnapshot = await db.collection('companies').doc(companyId).collection('members').where('status', '==', 'active').limit(500).get();
   const members = membersSnapshot.docs.map((doc) => ({ id: doc.id, role: String(doc.data().role ?? '') }));
   const descriptor = notificationDescriptor(event);
   const targets = notificationTargets(event, members);
   for (const userId of targets) {
+    const preference = await db.collection('notification_preferences').doc(userId).get();
+    const mode = String(preference.data()?.[descriptor.category] ?? (descriptor.severity === 'critical' ? 'instant' : 'instant'));
+    if (mode === 'mute' || (mode === 'critical-only' && !['critical', 'high'].includes(descriptor.severity))) continue;
     const notificationId = `${eventId}_${userId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 700);
     const notificationRef = db.collection('notifications').doc(userId).collection('items').doc(notificationId);
     await db.runTransaction(async (transaction) => {
-      if (!(await transaction.get(notificationRef)).exists) {
-        transaction.create(notificationRef, {
-          id: notificationId,
-          companyId,
-          userId,
-          category: descriptor.category,
-          severity: descriptor.severity,
-          title: descriptor.title,
-          body: descriptor.body,
-          entityType: String(event.entityType ?? 'activity'),
-          entityId: String(event.entityId ?? ''),
-          eventName: String(event.eventName ?? ''),
-          actionUrl: `/dashboard/inbox`,
-          read: false,
-          channels: ['in-app'],
-          createdAt: now(),
-          metadata: { sourceEventId: eventId },
-        });
-      }
+      if ((await transaction.get(notificationRef)).exists) return;
+      transaction.create(notificationRef, { id: notificationId, companyId, userId, category: descriptor.category, severity: descriptor.severity, title: descriptor.title, body: descriptor.body, entityType: String(event.entityType ?? 'activity'), entityId: String(event.entityId ?? ''), eventName: String(event.eventName ?? ''), actionUrl: '/dashboard/inbox', read: false, channels: ['in-app'], deliveryMode: mode, createdAt: now(), metadata: { sourceEventId: eventId } });
     });
   }
-
+  await materializeMeetingActions(event);
   const activityRef = db.collection('activities').doc(eventId);
   await db.runTransaction(async (transaction) => {
     if ((await transaction.get(activityRef)).exists) return;
-    transaction.create(activityRef, {
-      id: eventId,
-      companyId,
-      actorId: String(event.actorId ?? ''),
-      eventName: String(event.eventName ?? ''),
-      entityType: String(event.entityType ?? 'activity'),
-      entityId: String(event.entityId ?? ''),
-      payload: event.payload ?? {},
-      metadata: event.metadata ?? {},
-      createdAt: event.occurredAt ?? now(),
-      status: 'active',
-      version: 1,
-    });
+    transaction.create(activityRef, { id: eventId, companyId, actorId: String(event.actorId ?? ''), eventName: String(event.eventName ?? ''), entityType: String(event.entityType ?? 'activity'), entityId: String(event.entityId ?? ''), payload: event.payload ?? {}, metadata: event.metadata ?? {}, createdAt: event.occurredAt ?? now(), status: 'active', version: 1 });
   });
 }
 
@@ -100,7 +113,6 @@ async function enqueueAutomationJobs(event: Record<string, unknown>): Promise<nu
   const eventId = String(event.eventId ?? '');
   const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {};
   if (!companyId || !eventName || !eventId) throw new Error('INVALID_OUTBOX_EVENT');
-
   let lastId: string | undefined;
   let created = 0;
   while (true) {
@@ -112,9 +124,7 @@ async function enqueueAutomationJobs(event: Record<string, unknown>): Promise<nu
       const trigger = data.trigger as Record<string, unknown> | undefined;
       if (!trigger || trigger.type !== 'event' || trigger.eventName !== eventName) continue;
       const filter = trigger.filter;
-      if (filter && typeof filter === 'object' && !Array.isArray(filter)) {
-        if (!Object.entries(filter as Record<string, unknown>).every(([key, expected]) => payload[key] === expected)) continue;
-      }
+      if (filter && typeof filter === 'object' && !Array.isArray(filter)) if (!Object.entries(filter as Record<string, unknown>).every(([key, expected]) => payload[key] === expected)) continue;
       const workflowId = String(data.workflowId ?? '');
       if (!workflowId) continue;
       const workflow = await db.collection('module_workflows').doc(workflowId).get();
@@ -148,7 +158,6 @@ async function processOne(doc: admin.firestore.QueryDocumentSnapshot): Promise<v
     return { ...data, id: current.id, attempts } as Record<string, unknown>;
   });
   if (!claimed) return;
-
   try {
     await materializeEvent(claimed);
     await enqueueAutomationJobs(claimed);
