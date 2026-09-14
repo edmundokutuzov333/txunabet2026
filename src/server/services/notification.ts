@@ -1,8 +1,7 @@
 import 'server-only';
 
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
-import { requireIdentity, requirePermission } from '@/server/authorization';
-import { PERMISSIONS } from '@/server/authorization/permissions';
+import { requireIdentity } from '@/server/authorization';
 import { getAdminDb } from '@/server/firebase/admin';
 import { writeAuditEvent } from '@/server/repositories/audit';
 
@@ -30,10 +29,10 @@ export interface NotificationRecord {
   metadata: Record<string, unknown>;
 }
 
-const DEFAULT_PREFERENCES = {
+const DEFAULT_PREFERENCES: Record<NotificationCategory, NotificationMode> = {
   mention: 'instant', assignment: 'instant', comment: 'instant', approval: 'instant', form: 'digest', task: 'instant',
   document: 'digest', meeting: 'instant', workflow: 'critical-only', alert: 'instant', decision: 'digest', request: 'instant', system: 'critical-only',
-} satisfies Record<NotificationCategory, NotificationMode>;
+};
 
 function titleForEvent(eventName: string, payload: Record<string, unknown>): { category: NotificationCategory; severity: NotificationSeverity; title: string; body: string } {
   const name = eventName.toLowerCase();
@@ -59,7 +58,7 @@ function targetUsers(event: { companyId: string; actorId: string; eventName: str
   if (event.eventName === 'workflow.failed' || event.eventName.startsWith('incident.') || event.eventName.endsWith('.alert')) {
     return members.filter((member) => ['owner', 'admin', 'manager'].includes(member.role ?? '')).map((member) => member.id);
   }
-  return event.actorId ? [] : members.map((member) => member.id);
+  return [];
 }
 
 export async function createNotificationFromEvent(event: { eventId: string; companyId: string; actorId: string; eventName: string; entityType: string; entityId: string; payload: Record<string, unknown>; metadata?: Record<string, unknown> }): Promise<number> {
@@ -71,7 +70,7 @@ export async function createNotificationFromEvent(event: { eventId: string; comp
   if (!users.length) return 0;
   let created = 0;
   for (const userId of users) {
-    const mode = DEFAULT_PREFERENCES[descriptor.category];
+    const mode: NotificationMode = DEFAULT_PREFERENCES[descriptor.category];
     if (mode === 'mute' || (mode === 'critical-only' && !['critical', 'high'].includes(descriptor.severity))) continue;
     const notificationId = `${event.eventId}_${userId}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 700);
     const ref = db.collection('notifications').doc(userId).collection('items').doc(notificationId);
@@ -102,13 +101,13 @@ export async function createNotificationFromEvent(event: { eventId: string; comp
 
 export async function listInbox(options: { limit?: number; onlyUnread?: boolean; category?: string; since?: Date } = {}) {
   const identity = await requireIdentity();
-  const db = getAdminDb();
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
-  let query = db.collection('notifications').doc(identity.uid).collection('items').where('companyId', '==', identity.companyId).orderBy('createdAt', 'desc').limit(limit);
-  if (options.onlyUnread) query = query.where('read', '==', false).orderBy('createdAt', 'desc').limit(limit);
-  if (options.category) query = query.where('category', '==', options.category).orderBy('createdAt', 'desc').limit(limit);
-  const snapshot = await query.get();
-  return snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) })) as Array<Record<string, unknown>>;
+  const snapshot = await getAdminDb().collection('notifications').doc(identity.uid).collection('items').where('companyId', '==', identity.companyId).orderBy('createdAt', 'desc').limit(limit).get();
+  let records = snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) })) as Array<Record<string, unknown>>;
+  if (options.onlyUnread) records = records.filter((item) => item.read !== true);
+  if (options.category) records = records.filter((item) => item.category === options.category);
+  if (options.since) records = records.filter((item) => String(item.createdAt ?? '') >= options.since!.toISOString());
+  return records;
 }
 
 export async function markInboxRead(notificationIds: string[]) {
@@ -116,7 +115,7 @@ export async function markInboxRead(notificationIds: string[]) {
   const db = getAdminDb();
   const batch = db.batch();
   for (const id of notificationIds.slice(0, 100)) batch.update(db.collection('notifications').doc(identity.uid).collection('items').doc(id), { read: true, readAt: FieldValue.serverTimestamp() });
-  await batch.commit();
+  if (notificationIds.length) await batch.commit();
   await writeAuditEvent({ companyId: identity.companyId, actorId: identity.uid, action: 'notification.read', resourceType: 'notification', resourceId: identity.uid, metadata: { notificationIds: notificationIds.slice(0, 100) } });
 }
 
@@ -127,7 +126,7 @@ export async function getNotificationPreferences() {
 }
 
 export async function updateNotificationPreferences(input: Record<string, unknown>) {
-  const identity = await requirePermission(PERMISSIONS.OPERATIONS_MANAGE);
+  const identity = await requireIdentity();
   const allowedModes: NotificationMode[] = ['instant', 'digest', 'mute', 'critical-only'];
   const sanitized: Record<string, NotificationMode> = {};
   for (const [category, value] of Object.entries(input)) if (category in DEFAULT_PREFERENCES && typeof value === 'string' && allowedModes.includes(value as NotificationMode)) sanitized[category] = value as NotificationMode;
