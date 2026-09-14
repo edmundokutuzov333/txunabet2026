@@ -1,152 +1,39 @@
-
 'use client';
+
+import { useEffect, useState } from 'react';
+import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
+import { useAuth, useUser } from '@/firebase';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Shield, Smartphone, Monitor, Key, LogOut, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Shield, Smartphone, Monitor, Key, LogOut } from 'lucide-react';
-import { useState } from 'react';
 
-const securityLogs = [
-    { id: 1, event: "Sessão iniciada", ip: "192.168.1.10", location: "Maputo, MZ", time: "2024-11-18 14:20", device: "Chrome no Windows", status: "Success" },
-    { id: 2, event: "Alteração de password", ip: "192.168.1.10", location: "Maputo, MZ", time: "2024-11-17 09:45", device: "Chrome no Windows", status: "Success" },
-    { id: 3, event: "Tentativa de login falhada", ip: "203.0.113.25", location: "Lagos, NG", time: "2024-11-16 22:10", device: "Firefox no Linux", status: "Failed" },
-];
+type SecurityLog = { id: string; event?: string; action?: string; location?: string; device?: string; status?: string; createdAt?: any };
+type Session = { id: string; device?: string; browser?: string; location?: string; ip?: string; lastActive?: string; state?: string };
 
-const activeSessions = [
-    { id: 1, device: "Windows Desktop", browser: "Chrome", location: "Maputo, MZ", ip: "192.168.1.10", lastActive: "Agora", isCurrent: true, icon: <Monitor className="w-5 h-5 text-primary"/> },
-    { id: 2, device: "iPhone 15 Pro", browser: "Safari", location: "Maputo, MZ", ip: "192.168.1.15", lastActive: "há 2 horas", isCurrent: false, icon: <Smartphone className="w-5 h-5 text-primary"/> },
-];
+function timeText(value: unknown) { if (!value) return 'agora'; if (typeof value === 'string') return new Date(value).toLocaleString('pt-PT'); if (typeof value === 'object' && value && 'seconds' in value) return new Date(Number((value as {seconds:number}).seconds) * 1000).toLocaleString('pt-PT'); return 'recentemente'; }
 
 export default function SecurityPage() {
-    const { toast } = useToast();
-    const [is2faEnabled, setIs2faEnabled] = useState(true);
+  const auth = useAuth(); const { user } = useUser(); const { toast } = useToast();
+  const [mfaEnabled, setMfaEnabled] = useState(false); const [mfaRequired, setMfaRequired] = useState(true); const [logs, setLogs] = useState<SecurityLog[]>([]); const [sessions, setSessions] = useState<Session[]>([]); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState(''); const [newPassword, setNewPassword] = useState(''); const [confirmPassword, setConfirmPassword] = useState('');
 
-    const handleSavePassword = (e: React.FormEvent) => {
-        e.preventDefault();
-        toast({
-            title: "Password alterada com sucesso!",
-            description: "A sua nova password foi definida. Use-a no próximo login.",
-        });
-    }
+  const load = async () => { setLoading(true); try { const response = await fetch('/api/security', { cache: 'no-store', credentials: 'include' }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error ?? 'SECURITY_LOAD_FAILED'); setMfaEnabled(Boolean(payload.settings?.mfaEnabled)); setMfaRequired(payload.settings?.mfaRequired !== false); setLogs(Array.isArray(payload.logs) ? payload.logs : []); setSessions(Array.isArray(payload.sessions) ? payload.sessions : []); } catch (error) { toast({ variant:'destructive', title:'Segurança indisponível', description:error instanceof Error?error.message:'Falha ao carregar segurança.' }); } finally { setLoading(false); } };
+  useEffect(() => { void load(); }, []);
 
-    const handleLogoutSession = (deviceId: number) => {
-         toast({
-            title: "Sessão terminada",
-            description: "A sessão foi terminada com sucesso.",
-        });
-        // In a real app, you would filter out the session.
-    }
+  const toggleMfa = async (enabled: boolean) => { if (mfaRequired && !enabled) { toast({ variant:'destructive', title:'MFA obrigatório', description:'A política da empresa não permite desactivar MFA.' }); return; } setBusy(true); try { const response = await fetch('/api/security', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body:JSON.stringify({action:'mfa',enabled}) }); const payload=await response.json(); if(!response.ok) throw new Error(payload.error??'MFA_ACTION_FAILED'); setMfaEnabled(Boolean(payload.enabled)); toast({ title:enabled?'MFA activado':'MFA desactivado', description:'Estado actualizado no perfil empresarial.' }); } catch(error) { toast({variant:'destructive',title:'Não foi possível actualizar MFA',description:error instanceof Error?error.message:'Falha inesperada.'}); } finally { setBusy(false); } };
 
-    return (
-        <div className="p-6 fade-in">
-            <h1 className="text-3xl font-bold text-foreground mb-8">Segurança</h1>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-                {/* Left Column */}
-                <div className="space-y-8">
-                    <Card className="gradient-surface border-0 rounded-2xl">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2"><Shield className="text-primary"/>Autenticação de Dois Fatores (2FA)</CardTitle>
-                            <CardDescription>Adicione uma camada extra de segurança à sua conta.</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="flex items-center justify-between p-4 bg-card/50 rounded-lg">
-                                <Label htmlFor="2fa-switch" className="flex flex-col gap-1 cursor-pointer">
-                                    <span>Ativar Autenticação de Dois Fatores</span>
-                                    <span className="text-xs text-muted-foreground">Será solicitado um código via app autenticador.</span>
-                                </Label>
-                                <Switch id="2fa-switch" checked={is2faEnabled} onCheckedChange={setIs2faEnabled} />
-                            </div>
-                        </CardContent>
-                    </Card>
+  const changePassword = async (event: React.FormEvent) => { event.preventDefault(); if (!user?.email || !currentPassword || !newPassword || newPassword !== confirmPassword) { toast({variant:'destructive',title:'Dados inválidos',description:'Confirme a password actual e que as novas passwords coincidem.'}); return; } if(newPassword.length<10){toast({variant:'destructive',title:'Password fraca',description:'Use pelo menos 10 caracteres.'});return;} setBusy(true); try { const credential=EmailAuthProvider.credential(user.email,currentPassword); await reauthenticateWithCredential(user,credential); await updatePassword(user,newPassword); toast({title:'Password actualizada',description:'A password da sua conta Firebase foi alterada.'}); setCurrentPassword('');setNewPassword('');setConfirmPassword(''); } catch(error) { toast({variant:'destructive',title:'Não foi possível alterar a password',description:error instanceof Error?error.message:'Verifique a password actual.'}); } finally{setBusy(false);} };
 
-                    <Card className="gradient-surface border-0 rounded-2xl">
-                        <CardHeader>
-                            <CardTitle>Sessões Ativas</CardTitle>
-                            <CardDescription>Dispositivos atualmente com sessão iniciada na sua conta.</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            {activeSessions.map(session => (
-                                <div key={session.id} className="flex items-center justify-between p-3 bg-card/50 rounded-lg">
-                                    <div className="flex items-center gap-3">
-                                        {session.icon}
-                                        <div>
-                                            <p className="font-semibold text-foreground">{session.device} <span className="text-muted-foreground">({session.browser})</span></p>
-                                            <p className="text-xs text-muted-foreground">{session.location} • {session.ip}</p>
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        {session.isCurrent ? 
-                                            <span className="text-xs font-semibold text-success-500">Sessão Atual</span> :
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/80 hover:text-destructive" onClick={() => handleLogoutSession(session.id)}><LogOut className="w-4 h-4"/></Button>
-                                        }
-                                        <p className="text-xs text-muted-foreground">{session.lastActive}</p>
-                                    </div>
-                                </div>
-                            ))}
-                        </CardContent>
-                    </Card>
-                </div>
-                {/* Right Column */}
-                <div className="space-y-8">
-                     <Card className="gradient-surface border-0 rounded-2xl">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2"><Key className="text-primary"/>Alterar Password</CardTitle>
-                            <CardDescription>Para a sua segurança, use uma password forte e única.</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <form className="space-y-4" onSubmit={handleSavePassword}>
-                                <div className="space-y-2">
-                                    <Label htmlFor="current-password">Password Atual</Label>
-                                    <Input id="current-password" type="password" placeholder="••••••••" className="bg-card border-border"/>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="new-password">Nova Password</Label>
-                                    <Input id="new-password" type="password" placeholder="••••••••" className="bg-card border-border"/>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="confirm-password">Confirmar Nova Password</Label>
-                                    <Input id="confirm-password" type="password" placeholder="••••••••" className="bg-card border-border"/>
-                                </div>
-                                <Button type="submit" className="w-full btn-primary-gradient">Salvar Nova Password</Button>
-                            </form>
-                        </CardContent>
-                    </Card>
-                    
-                    <Card className="gradient-surface border-0 rounded-2xl">
-                        <CardHeader>
-                            <CardTitle>Logs de Segurança</CardTitle>
-                            <CardDescription>Histórico de eventos de segurança da sua conta.</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <Table>
-                                <TableHeader>
-                                    <TableRow className="border-b-border hover:bg-transparent">
-                                        <TableHead>Evento</TableHead>
-                                        <TableHead>Localização</TableHead>
-                                        <TableHead className="text-right">Data</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {securityLogs.map(log => (
-                                        <TableRow key={log.id} className="border-b-border/50 hover:bg-muted/50">
-                                            <TableCell>
-                                                <span className={`mr-2 h-2 w-2 rounded-full inline-block ${log.status === 'Success' ? 'bg-success-500' : 'bg-destructive'}`}></span>
-                                                {log.event}
-                                            </TableCell>
-                                            <TableCell className="text-muted-foreground">{log.location}</TableCell>
-                                            <TableCell className="text-muted-foreground text-right">{log.time.split(' ')[1]}</TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                        </CardContent>
-                    </Card>
-                </div>
-            </div>
-        </div>
-    );
+  const revokeAll = async () => { setBusy(true); try { const response=await fetch('/api/security',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({action:'revoke-all'})}); const payload=await response.json(); if(!response.ok) throw new Error(payload.error??'SESSION_REVOKE_FAILED'); toast({title:'Sessões revogadas',description:'As sessões Firebase foram revogadas. Poderá ser necessário iniciar sessão novamente.'}); await load(); } catch(error){toast({variant:'destructive',title:'Falha ao revogar sessões',description:error instanceof Error?error.message:'Falha inesperada.'});} finally{setBusy(false);} };
+
+  return <div className="grid gap-6 p-1"><div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between"><div><p className="text-xs uppercase tracking-[0.12em] text-primary">Enterprise Security</p><h1 className="text-3xl font-bold">Segurança</h1><p className="mt-1 text-sm text-muted-foreground">Autenticação, sessões e eventos da sua conta, ligados ao backend.</p></div><Button variant="outline" onClick={()=>void load()} disabled={loading}><RefreshCw className={loading?'mr-2 h-4 w-4 animate-spin':'mr-2 h-4 w-4'}/>Actualizar</Button></div>
+    <div className="grid gap-4 xl:grid-cols-3"><Card className="xl:col-span-2"><CardHeader><CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5 text-primary"/>Multi-factor authentication</CardTitle><CardDescription>{mfaRequired?'MFA é exigido pela política da empresa.':'MFA pode ser activado para aumentar a proteção.'}</CardDescription></CardHeader><CardContent><div className="flex items-center justify-between rounded-xl border p-4"><div><p className="font-medium">Autenticação multifactor</p><p className="text-xs text-muted-foreground">Estado persistido no perfil empresarial.</p></div><Switch checked={mfaEnabled || mfaRequired} disabled={busy || mfaRequired} onCheckedChange={(checked)=>void toggleMfa(checked)}/></div></CardContent></Card><Card><CardHeader><CardTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-primary"/>Estado</CardTitle></CardHeader><CardContent><div className="space-y-3 text-sm"><div className="flex justify-between"><span className="text-muted-foreground">MFA policy</span><span className="font-medium">{mfaRequired?'Required':'Optional'}</span></div><div className="flex justify-between"><span className="text-muted-foreground">MFA enabled</span><span className="font-medium">{mfaEnabled||mfaRequired?'Yes':'No'}</span></div><div className="flex justify-between"><span className="text-muted-foreground">Active sessions</span><span className="font-medium">{sessions.filter((s)=>s.state!=='revoked').length}</span></div></div></CardContent></Card></div>
+    <div className="grid gap-5 lg:grid-cols-2"><Card><CardHeader><CardTitle className="flex items-center gap-2"><Key className="h-5 w-5 text-primary"/>Alterar Password</CardTitle><CardDescription>A password é alterada directamente na conta Firebase.</CardDescription></CardHeader><CardContent><form className="space-y-4" onSubmit={changePassword}><div className="space-y-2"><Label htmlFor="current-password">Password actual</Label><Input id="current-password" type="password" value={currentPassword} onChange={(e)=>setCurrentPassword(e.target.value)} autoComplete="current-password"/></div><div className="space-y-2"><Label htmlFor="new-password">Nova password</Label><Input id="new-password" type="password" value={newPassword} onChange={(e)=>setNewPassword(e.target.value)} autoComplete="new-password"/></div><div className="space-y-2"><Label htmlFor="confirm-password">Confirmar nova password</Label><Input id="confirm-password" type="password" value={confirmPassword} onChange={(e)=>setConfirmPassword(e.target.value)} autoComplete="new-password"/></div><Button type="submit" className="w-full" disabled={busy}>Actualizar password</Button></form></CardContent></Card>
+      <Card><CardHeader><CardTitle>Sessões</CardTitle><CardDescription>O backend mantém o registo de sessões empresariais e permite revogação global.</CardDescription></CardHeader><CardContent className="space-y-3">{sessions.length? sessions.map((session)=><div key={session.id} className="flex items-center justify-between rounded-xl border p-3"><div className="flex items-center gap-3"><Monitor className="h-5 w-5 text-primary"/><div><p className="font-semibold">{session.device??'Browser session'}</p><p className="text-xs text-muted-foreground">{session.browser??'Browser'} · {session.location??'Unknown'} · {session.ip??'—'}</p></div></div><div className="text-right"><p className="text-xs font-medium">{session.state??'active'}</p><p className="text-[10px] text-muted-foreground">{session.lastActive??'recently'}</p></div></div>):<p className="py-8 text-center text-sm text-muted-foreground">Sem sessões registadas ainda.</p>}<Button variant="destructive" className="w-full" onClick={()=>void revokeAll()} disabled={busy}><LogOut className="mr-2 h-4 w-4"/>Revogar todas as sessões</Button></CardContent></Card></div>
+    <Card><CardHeader><CardTitle>Security event log</CardTitle><CardDescription>Eventos registados pelo backend.</CardDescription></CardHeader><CardContent>{logs.length?<div className="space-y-2">{logs.slice(0,30).map((log)=><div key={log.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg border p-3 text-sm"><span className={`h-2 w-2 rounded-full ${String(log.status).toLowerCase().includes('fail')?'bg-destructive':'bg-primary'}`}/><div><p className="font-medium">{log.event??log.action??'Security event'}</p><p className="text-xs text-muted-foreground">{log.location??''} {log.device?`· ${log.device}`:''}</p></div><span className="text-xs text-muted-foreground">{timeText(log.createdAt)}</span></div>)}</div>:<p className="py-8 text-center text-sm text-muted-foreground">Sem eventos de segurança registados.</p>}</CardContent></Card>
+  </div>;
 }
