@@ -1,9 +1,9 @@
 import 'server-only';
 
 import { Timestamp } from 'firebase-admin/firestore';
-import { getAdminDb } from '@/server/firebase/admin';
-import { requireIdentity, requirePermission } from '@/server/authorization';
+import { requirePermission } from '@/server/authorization';
 import { PERMISSIONS } from '@/server/authorization/permissions';
+import { getAdminDb } from '@/server/firebase/admin';
 
 export type CalendarConflict={kind:'overlap'|'deadline-risk'|'focus-collision';severity:'high'|'medium'|'low';title:string;startsAt?:string;endsAt?:string;items:string[];reason:string};
 
@@ -24,9 +24,9 @@ export async function getCalendarIntelligence(windowDays=14){
   meetings.docs.forEach(doc=>{const d=doc.data();const start=millis(d.startsAt??d.startAt??d.date);if(start>=now-24*60*60*1000&&start<=horizon)mapped.push({id:doc.id,type:'meeting',title:String(d.title??'Reunião'),start,end:millis(d.endsAt??d.endAt)||start+duration(d),data:d})});
   const deadlineItems:Array<Record<string,unknown>>=[]; tasks.docs.forEach(doc=>{const d=doc.data();const due=millis(d.dueDate??d.deadline);if(due>=now&&due<=horizon&&['done','completed','cancelled'].indexOf(String(d.status??''))<0)deadlineItems.push({id:doc.id,type:'task',title:String(d.title??'Tarefa'),due,projectId:d.projectId,assigneeId:d.assigneeId})});
   const conflicts:CalendarConflict[]=[];
-  for(let i=0;i<mapped.length;i+=1)for(let j=i+1;j<mapped.length;j+=1){const a=mapped[i];const b=mapped[j];if(Number(a.start)<Number(b.end)&&Number(b.start)<Number(a.end)){const severity=Math.min(Number(a.end),Number(b.end))-Math.max(Number(a.start),Number(b.start))>=30*60*1000?'high':'medium';conflicts.push({kind:'overlap',severity:titleSeverity(severity),title:`Conflito: ${String(a.title)} × ${String(b.title)}`,startsAt:iso(Math.max(Number(a.start),Number(b.start))),endsAt:iso(Math.min(Number(a.end),Number(b.end))),items:[`${String(a.type)}:${String(a.id)}`,`${String(b.type)}:${String(b.id)}`],reason:'Os intervalos de calendário sobrepõem-se.'})}}
+  for(let i=0;i<mapped.length;i+=1)for(let j=i+1;j<mapped.length;j+=1){const a=mapped[i];const b=mapped[j];if(Number(a.start)<Number(b.end)&&Number(b.start)<Number(a.end)){const overlap=Math.min(Number(a.end),Number(b.end))-Math.max(Number(a.start),Number(b.start));conflicts.push({kind:'overlap',severity:titleSeverity(overlap),title:`Conflito: ${String(a.title)} × ${String(b.title)}`,startsAt:iso(Math.max(Number(a.start),Number(b.start))),endsAt:iso(Math.min(Number(a.end),Number(b.end))),items:[`${String(a.type)}:${String(a.id)}`,`${String(b.type)}:${String(b.id)}`],reason:'Os intervalos de calendário sobrepõem-se.'})}}
   const workload=new Map<string,{count:number;due:number}>(); for(const item of deadlineItems){const uid=typeof item.assigneeId==='string'?item.assigneeId:'unassigned';const current=workload.get(uid)??{count:0,due:0};current.count+=1;current.due+=1;workload.set(uid,current)}
-  for(const [uid,value] of workload){if(value.count>=6)conflicts.push({kind:'deadline-risk',severity:'medium',title:`Alta concentração de deadlines`,items:[uid],reason:`${value.count} tarefas abertas vencem no período analisado.`})}
+  for(const [uid,value] of workload){if(value.count>=6)conflicts.push({kind:'deadline-risk',severity:'medium',title:'Alta concentração de deadlines',items:[uid],reason:`${value.count} tarefas abertas vencem no período analisado.`})}
   return {windowDays,events:mapped.sort((a,b)=>Number(a.start)-Number(b.start)).map(item=>({id:item.id,type:item.type,title:item.title,startsAt:iso(item.start),endsAt:iso(item.end)})),deadlines:deadlineItems.sort((a,b)=>Number(a.due)-Number(b.due)).map(item=>({id:item.id,title:item.title,dueDate:iso(item.due),projectId:item.projectId,assigneeId:item.assigneeId})),projects:projects.docs.map(doc=>({id:doc.id,title:String(doc.data().title??doc.data().name??'Projeto'),deadline:iso(doc.data().deadline??doc.data().dueDate),status:doc.data().status})),conflicts,focusBlocks:buildFocusBlocks(mapped,now,horizon)};
 }
 function titleSeverity(overlap:number):CalendarConflict['severity']{return overlap>=60*60*1000?'high':'medium';}
