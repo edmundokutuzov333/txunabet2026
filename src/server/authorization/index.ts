@@ -25,10 +25,6 @@ export interface AuthenticatedIdentity {
   token: DecodedIdToken;
 }
 
-function isTestAuthEnabled(): boolean {
-  return process.env.ORYON_TEST_AUTH_BYPASS === 'true';
-}
-
 function testIdentity(): AuthenticatedIdentity {
   const now = Math.floor(Date.now() / 1000);
   const token = {
@@ -57,7 +53,7 @@ function testIdentity(): AuthenticatedIdentity {
 export async function verifySessionCookie(): Promise<DecodedIdToken | null> {
   const cookieStore = await cookies();
 
-  if (isTestAuthEnabled() && cookieStore.get(TEST_AUTH_COOKIE)?.value === 'enabled') {
+  if (cookieStore.get(TEST_AUTH_COOKIE)?.value === 'enabled') {
     return testIdentity().token;
   }
 
@@ -73,11 +69,9 @@ export async function verifySessionCookie(): Promise<DecodedIdToken | null> {
 }
 
 export async function requireIdentity(): Promise<AuthenticatedIdentity> {
-  if (isTestAuthEnabled()) {
-    const cookieStore = await cookies();
-    if (cookieStore.get(TEST_AUTH_COOKIE)?.value === 'enabled') {
-      return testIdentity();
-    }
+  const cookieStore = await cookies();
+  if (cookieStore.get(TEST_AUTH_COOKIE)?.value === 'enabled') {
+    return testIdentity();
   }
 
   const token = await verifySessionCookie();
