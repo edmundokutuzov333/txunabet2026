@@ -14,6 +14,7 @@ const COLLECTIONS = {
   support: 'support_tickets',
 } as const;
 type Resource = keyof typeof COLLECTIONS;
+type OperatorRow = { id: string; [key: string]: unknown };
 
 function resource(value: string): Resource {
   if (!(value in COLLECTIONS)) throw new Error('RESOURCE_NOT_FOUND');
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
     const key = resource(request.nextUrl.searchParams.get('resource') ?? 'sportsbook');
     const q = request.nextUrl.searchParams.get('q')?.trim().toLowerCase() ?? '';
     const snapshot = await getAdminDb().collection(COLLECTIONS[key]).where('companyId', '==', identity.companyId).limit(250).get();
-    let rows = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    let rows: OperatorRow[] = snapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
     if (q) rows = rows.filter((row) => JSON.stringify(row).toLowerCase().includes(q));
     rows.sort((a, b) => String(b.updatedAt ?? b.createdAt ?? '').localeCompare(String(a.updatedAt ?? a.createdAt ?? '')));
 
@@ -81,7 +82,7 @@ export async function PATCH(request: NextRequest) {
     const current = await ref.get();
     if (!current.exists || current.data()?.companyId !== identity.companyId) return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
     await ref.update({ ...input, updatedBy: identity.uid, updatedAt: FieldValue.serverTimestamp(), version: Number(current.data()?.version ?? 1) + 1 });
-    return NextResponse.json({ data: { id, ...current.data(), ...input } });
+    return NextResponse.json({ data: { id, ...(current.data() as Record<string, unknown>), ...input } });
   } catch (error) {
     const code = error instanceof Error ? error.message : 'BETTING_OPS_UPDATE_FAILED';
     return NextResponse.json({ error: code }, { status: 400 });
