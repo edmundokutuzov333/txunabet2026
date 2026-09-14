@@ -16,27 +16,37 @@ const catalog = {
 } as const;
 
 async function seed(db: Firestore, collection: string, rows: Record<string, unknown>[]) {
-  const batch = db.batch();
-  rows.forEach((row) => batch.set(db.collection(collection).doc(String(row.id)), row, { merge: true }));
-  await batch.commit();
+  for (let i = 0; i < rows.length; i += 450) {
+    const batch = db.batch();
+    rows.slice(i, i + 450).forEach((row) => batch.set(db.collection(collection).doc(String(row.id)), row, { merge: true }));
+    await batch.commit();
+  }
 }
 
 export async function ensureDemoDataExtra(identity: AuthenticatedIdentity) {
   const db = getAdminDb();
   const marker = db.collection('companies').doc(identity.companyId).collection('system').doc('demo-extra-seed');
   const current = await marker.get();
-  if (current.exists && Number(current.data()?.version) >= 2) return;
+  if (current.exists && Number(current.data()?.version) >= 3) return;
   const ts = FieldValue.serverTimestamp();
   const common = { companyId: identity.companyId, createdBy: identity.uid, updatedBy: identity.uid, createdAt: ts, updatedAt: ts, status: 'active', version: 1 };
 
   for (const [collection, names] of Object.entries(catalog)) {
-    await seed(db, collection, names.map((name, i) => ({ ...common, id: `demo-${collection}-${i + 1}`, name: collection.includes('knowledge') ? undefined : name, title: collection.includes('knowledge') ? name : undefined, department: BET_DEPARTMENTS[i % BET_DEPARTMENTS.length][0], description: `Registo operacional de ${name}.`, connected: collection === 'module_integrations' ? true : undefined, health: collection === 'module_integrations' ? (i === 2 ? 'degraded' : 'healthy') : undefined, active: ['module_automations','module_integrations'].includes(collection) })));
+    await seed(db, collection, names.map((name, i) => {
+      const row: Record<string, unknown> = { ...common, id: `demo-${collection}-${i + 1}`, description: `Registo operacional de ${name}.`, department: BET_DEPARTMENTS[i % BET_DEPARTMENTS.length][0] };
+      if (collection === 'module_knowledge_articles') row.title = name;
+      else row.name = name;
+      if (collection === 'module_integrations') { row.connected = true; row.health = i === 2 ? 'degraded' : 'healthy'; }
+      if (collection === 'module_automations') row.active = true;
+      return row;
+    }));
   }
 
-  await seed(db, 'module_cloud_files', Array.from({ length: 20 }, (_, i) => ({ ...common, id: `demo-cloud-${i + 1}`, name: ['Trading shift files','Finance close pack','Compliance evidence','Marketing creative','VIP reports','Security evidence'][i % 6], type: 'folder', ownerId: identity.uid, sharedWith: [], storagePath: '', mimeType: 'application/x-directory', size: 0 })));
+  await seed(db, 'module_cloud_files', Array.from({ length: 20 }, (_, i) => ({ ...common, id: `demo-cloud-${i + 1}`, name: ['Trading shift files','Finance close pack','Compliance evidence','Marketing creative','VIP reports','Security evidence'][i % 6], type: 'folder', ownerId: identity.uid, sharedWith: [], storagePath: `demo/folders/${i + 1}`, mimeType: 'application/x-directory', size: 0 })));
   await seed(db, 'capacity_allocations', Array.from({ length: 36 }, (_, i) => ({ ...common, id: `demo-capacity-${i + 1}`, userId: identity.uid, projectId: `demo-project-${(i % 12) + 1}`, weekStart: new Date(Date.now() - 86400000 * 2).toISOString().slice(0, 10), availableHours: 40, allocatedHours: 24 + (i % 14) })));
   await seed(db, 'time_entries', Array.from({ length: 36 }, (_, i) => ({ ...common, id: `demo-time-${i + 1}`, projectId: `demo-project-${(i % 12) + 1}`, taskId: `demo-task-${(i % 72) + 1}`, startedAt: new Date(Date.now() - 86400000 * (i % 8)).toISOString(), endedAt: new Date(Date.now() - 86400000 * (i % 8) + 3600000).toISOString(), minutes: 45 + (i % 4) * 15, note: 'Registo de trabalho operacional.' })));
   await seed(db, 'project_milestones', Array.from({ length: 18 }, (_, i) => ({ ...common, id: `demo-milestone-${i + 1}`, projectId: `demo-project-${(i % 12) + 1}`, title: ['Discovery complete','Trading rules approved','PSP UAT','Security sign-off','Go-live'][i % 5], varianceDays: (i % 7) - 2, dueDate: new Date(Date.now() + 86400000 * (i + 3)).toISOString() })));
+  await seed(db, 'projects', Array.from({ length: 12 }, (_, i) => ({ departmentId: `demo-dept-${BET_DEPARTMENTS[i % BET_DEPARTMENTS.length][0]}`, id: `demo-project-${i + 1}` })));
 
-  await marker.set({ version: 2, seededAt: ts, seededBy: identity.uid });
+  await marker.set({ version: 3, seededAt: ts, seededBy: identity.uid, note: 'Firestore-safe extra operating dataset' }, { merge: true });
 }
