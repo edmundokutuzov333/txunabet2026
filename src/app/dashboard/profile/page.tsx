@@ -1,152 +1,30 @@
-
 'use client';
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
-import { getCurrentUser } from "@/lib/data";
-import { PlaceHolderImages } from "@/lib/placeholder-images";
-import { Bell, Key, Shield, User, Activity, Edit3 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
 
-const currentUser = getCurrentUser();
-const avatar = PlaceHolderImages.find(p => p.id === `user-avatar-${currentUser.id}`)?.imageUrl;
+import { FormEvent, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Activity, ArrowRight, Bell, Key, RefreshCw, Shield, UserRound } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { useUser } from '@/firebase';
 
-export default function ProfilePage() {
-    const { toast } = useToast();
+type Profile = { uid:string; email?:string|null; displayName?:string; role?:string; departmentId?:string; departmentIds?:string[]; bio?:string; phone?:string; location?:string; photoURL?:string|null };
+type ActivityRow = { id:string; action?:string; description?:string; entityType?:string; createdAt?:any };
+const timeText=(value:unknown)=>{if(typeof value==='string'){const date=new Date(value);return Number.isNaN(date.getTime())?'recentemente':date.toLocaleString('pt-PT');}if(value&&typeof value==='object'&&'seconds' in value)return new Date(Number((value as {seconds:number}).seconds)*1000).toLocaleString('pt-PT');return 'recentemente';};
 
-    const handleSave = (section: string) => {
-        toast({
-            title: `Alterações Salvas`,
-            description: `As suas informações de ${section} foram atualizadas.`,
-        });
-    }
-
-  return (
-    <div className="p-6 fade-in">
-        <h1 className="text-3xl font-bold text-foreground mb-8">Meu Perfil</h1>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-            {/* Coluna Esquerda - Perfil e Segurança */}
-            <div className="lg:col-span-2 space-y-8">
-                <Card className="gradient-surface border-0 rounded-2xl">
-                    <CardHeader className="flex flex-row items-center gap-6">
-                         <div className="relative">
-                            <Avatar className="h-24 w-24 border-4 border-primary">
-                                <AvatarImage src={avatar} alt={currentUser.name} data-ai-hint="person portrait" />
-                                <AvatarFallback>{currentUser.name.charAt(0)}</AvatarFallback>
-                            </Avatar>
-                            <Button size="icon" className="absolute bottom-0 right-0 h-8 w-8 rounded-full btn-primary-gradient">
-                                <Edit3 className="h-4 w-4"/>
-                            </Button>
-                        </div>
-                        <div>
-                            <CardTitle className="text-2xl font-bold">{currentUser.name}</CardTitle>
-                            <CardDescription className="text-muted-foreground">{currentUser.role} • {currentUser.department}</CardDescription>
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <form className="space-y-4">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="name">Nome Completo</Label>
-                                    <Input id="name" defaultValue={currentUser.name} className="bg-card border-border"/>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="email">Email</Label>
-                                    <Input id="email" defaultValue={currentUser.email} disabled className="bg-card border-border disabled:opacity-70"/>
-                                </div>
-                            </div>
-                             <div className="space-y-2">
-                                <Label htmlFor="bio">Bio</Label>
-                                <Textarea id="bio" defaultValue={currentUser.bio} className="bg-card border-border" rows={3}/>
-                            </div>
-                            <div className="flex justify-end">
-                                <Button className="btn-primary-gradient" onClick={() => handleSave('perfil')}>Salvar Alterações</Button>
-                            </div>
-                        </form>
-                    </CardContent>
-                </Card>
-
-                <Card className="gradient-surface border-0 rounded-2xl">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><Shield className="text-primary"/> Segurança</CardTitle>
-                        <CardDescription>Gestão da sua password e autenticação.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="flex justify-between items-center p-3 bg-card/50 rounded-lg">
-                           <div>
-                             <h4 className="font-semibold">Alterar Password</h4>
-                             <p className="text-sm text-muted-foreground">Recomenda-se a alteração periódica.</p>
-                           </div>
-                           <Button variant="outline" className="bg-card border-border">Alterar</Button>
-                        </div>
-                         <div className="flex justify-between items-center p-3 bg-card/50 rounded-lg">
-                           <div>
-                             <h4 className="font-semibold">Autenticação de 2 Fatores (2FA)</h4>
-                             <p className="text-sm text-muted-foreground">Proteja a sua conta com uma camada extra de segurança.</p>
-                           </div>
-                           <Switch defaultChecked={currentUser.permissions.includes('2fa')} aria-label="Toggle 2FA" />
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* Coluna Direita - Notificações e Atividade */}
-            <div className="lg:col-span-1 space-y-8">
-                 <Card className="gradient-surface border-0 rounded-2xl">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><Bell className="text-primary"/>Notificações</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="email-notifications" className="flex flex-col">
-                                <span>Notificações por Email</span>
-                                <span className="text-xs text-muted-foreground">Receba alertas importantes no seu email.</span>
-                            </Label>
-                            <Switch id="email-notifications" defaultChecked />
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="push-notifications" className="flex flex-col">
-                                <span>Notificações Push</span>
-                                <span className="text-xs text-muted-foreground">Alertas em tempo real no seu browser.</span>
-                            </Label>
-                            <Switch id="push-notifications" defaultChecked />
-                        </div>
-                         <div className="flex items-center justify-between">
-                            <Label htmlFor="sound-notifications" className="flex flex-col">
-                                <span>Sons de Notificação</span>
-                                <span className="text-xs text-muted-foreground">Ativar sons para novos alertas.</span>
-                            </Label>
-                            <Switch id="sound-notifications" />
-                        </div>
-                    </CardContent>
-                </Card>
-
-                 <Card className="gradient-surface border-0 rounded-2xl">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><Activity className="text-primary"/>Atividade Recente</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        <div className="flex items-start gap-3 text-sm">
-                            <div className="bg-primary/20 text-primary p-2 rounded-full"><User className="w-4 h-4"/></div>
-                            <p className="text-muted-foreground">Você atualizou as odds para o jogo <span className="font-semibold text-foreground">Benfica vs Porto</span>.</p>
-                        </div>
-                         <div className="flex items-start gap-3 text-sm">
-                            <div className="bg-green-500/20 text-green-400 p-2 rounded-full"><Key className="w-4 h-4"/></div>
-                            <p className="text-muted-foreground">Sessão iniciada a partir de um novo dispositivo.<span className="block text-xs text-muted-foreground">há 1 dia</span></p>
-                        </div>
-                         <div className="flex items-start gap-3 text-sm">
-                            <div className="bg-yellow-400/20 text-yellow-400 p-2 rounded-full"><Bell className="w-4 h-4"/></div>
-                            <p className="text-muted-foreground">Você foi mencionado por <span className="font-semibold text-foreground">Maria Silva</span> no canal de Marketing.<span className="block text-xs text-muted-foreground">há 3 dias</span></p>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-        </div>
-    </div>
-  );
+export default function ProfilePage(){
+  const { user } = useUser(); const { toast } = useToast(); const [profile,setProfile]=useState<Profile|null>(null); const [activities,setActivities]=useState<ActivityRow[]>([]); const [loading,setLoading]=useState(true); const [saving,setSaving]=useState(false);
+  const load=async()=>{setLoading(true);try{const response=await fetch('/api/profile',{credentials:'include',cache:'no-store'});const payload=await response.json();if(!response.ok)throw new Error(payload.error??'PROFILE_LOAD_FAILED');setProfile(payload.profile);setActivities(Array.isArray(payload.activities)?payload.activities:[]);}catch(error){toast({variant:'destructive',title:'Perfil indisponível',description:error instanceof Error?error.message:'Erro inesperado.'});}finally{setLoading(false);}};
+  useEffect(()=>{void load();},[]);
+  const save=async(event:FormEvent<HTMLFormElement>)=>{event.preventDefault();if(!profile)return;setSaving(true);try{const form=new FormData(event.currentTarget);const body={displayName:String(form.get('displayName')??''),bio:String(form.get('bio')??''),phone:String(form.get('phone')??''),location:String(form.get('location')??'')};const response=await fetch('/api/profile',{method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)});const payload=await response.json();if(!response.ok)throw new Error(payload.error??'PROFILE_UPDATE_FAILED');setProfile((current)=>current?{...current,...body}:current);toast({title:'Perfil actualizado',description:'As alterações foram guardadas no backend.'});}catch(error){toast({variant:'destructive',title:'Falha ao guardar perfil',description:error instanceof Error?error.message:'Erro inesperado.'});}finally{setSaving(false);}};
+  const displayName=profile?.displayName||user?.displayName||profile?.email||'Utilizador';
+  return <div className="grid gap-6"><div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between"><div><p className="text-xs uppercase tracking-[0.12em] text-primary">Account</p><h1 className="text-3xl font-bold">Meu Perfil</h1><p className="mt-1 text-sm text-muted-foreground">Identidade empresarial, preferências e histórico da sua actividade.</p></div><div className="flex gap-2"><Button variant="outline" onClick={()=>void load()} disabled={loading}><RefreshCw className={loading?'mr-2 h-4 w-4 animate-spin':'mr-2 h-4 w-4'}/>Actualizar</Button><Button asChild variant="outline"><Link href="/dashboard/security"><Shield className="mr-2 h-4 w-4"/>Segurança</Link></Button></div></div>
+    <div className="grid gap-5 lg:grid-cols-[1.45fr_0.55fr]"><Card><CardHeader className="flex flex-row items-center gap-5"><Avatar className="h-20 w-20 border-2 border-primary"><AvatarImage src={profile?.photoURL??user?.photoURL??undefined}/><AvatarFallback>{displayName.charAt(0).toUpperCase()}</AvatarFallback></Avatar><div className="min-w-0"><CardTitle className="text-xl">{displayName}</CardTitle><CardDescription>{profile?.role??'member'} · {profile?.email??user?.email}</CardDescription></div></CardHeader><CardContent><form onSubmit={save} className="grid gap-4"><div className="grid gap-4 md:grid-cols-2"><div><Label htmlFor="displayName">Nome</Label><Input id="displayName" name="displayName" className="mt-2" defaultValue={profile?.displayName??user?.displayName??''}/></div><div><Label htmlFor="email">Email</Label><Input id="email" value={profile?.email??user?.email??''} disabled className="mt-2"/></div><div><Label htmlFor="phone">Telefone</Label><Input id="phone" name="phone" className="mt-2" defaultValue={profile?.phone??''}/></div><div><Label htmlFor="location">Localização</Label><Input id="location" name="location" className="mt-2" defaultValue={profile?.location??''}/></div></div><div><Label htmlFor="bio">Bio</Label><Textarea id="bio" name="bio" className="mt-2 min-h-28" defaultValue={profile?.bio??''}/></div><div className="flex justify-end"><Button type="submit" disabled={saving||loading}>{saving?'A guardar…':'Guardar alterações'}</Button></div></form></CardContent></Card>
+      <div className="grid gap-4"><Card><CardHeader><CardTitle>Contexto</CardTitle></CardHeader><CardContent className="space-y-3 text-sm"><div className="flex justify-between"><span className="text-muted-foreground">Role</span><span>{profile?.role??'member'}</span></div><div className="flex justify-between"><span className="text-muted-foreground">Company</span><span className="truncate">{profile?.companyId??'—'}</span></div><div className="flex justify-between"><span className="text-muted-foreground">Departments</span><span>{profile?.departmentIds?.length??0}</span></div></CardContent></Card><Card><CardHeader><CardTitle className="flex items-center gap-2"><Key className="h-4 w-4 text-primary"/>Segurança</CardTitle><CardDescription>Password, MFA e sessões.</CardDescription></CardHeader><CardContent><Button asChild className="w-full"><Link href="/dashboard/security">Abrir segurança<ArrowRight className="ml-2 h-4 w-4"/></Link></Button></CardContent></Card></div></div>
+    <Card><CardHeader><CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary"/>Actividade recente</CardTitle><CardDescription>Eventos de trabalho associados à sua conta.</CardDescription></CardHeader><CardContent>{activities.length?<div className="space-y-2">{activities.slice(0,30).map((item)=><div key={item.id} className="grid grid-cols-[auto_1fr_auto] gap-3 rounded-lg border p-3 text-sm"><span className="grid h-7 w-7 place-items-center rounded-full bg-primary/10 text-primary"><Bell className="h-3.5 w-3.5"/></span><div><p className="font-medium">{item.description??item.action??'Actividade'}</p><p className="text-xs text-muted-foreground">{item.entityType??'workspace'}</p></div><span className="text-xs text-muted-foreground">{timeText(item.createdAt)}</span></div>)}</div>:<p className="py-8 text-center text-sm text-muted-foreground">Sem actividade recente.</p>}</CardContent></Card>
+  </div>;
 }
