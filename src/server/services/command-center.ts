@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp, type DocumentData, type QuerySnapshot } from 'firebase-admin/firestore';
 import { requireIdentity } from '@/server/authorization';
 import { getAdminDb } from '@/server/firebase/admin';
 import { listInbox } from './notification';
@@ -23,17 +23,16 @@ function millis(value: unknown): number {
 function dateKey(value: unknown): string { const ms = millis(value); return ms ? new Date(ms).toISOString().slice(0, 10) : ''; }
 function humanTitle(item: Record<string, unknown>, fallback: string) { return String(item.title ?? item.name ?? item.subject ?? fallback); }
 
-async function queryCompany(collection: string, companyId: string, limit = 100) {
+async function queryCompany(collection: string, companyId: string, limit = 100): Promise<QuerySnapshot<DocumentData>> {
   try {
     return await getAdminDb().collection(collection).where('companyId', '==', companyId).limit(limit).get();
   } catch {
-    return { docs: [] } as const;
+    return { docs: [] } as unknown as QuerySnapshot<DocumentData>;
   }
 }
 
 export async function getCommandCenter() {
   const identity = await requireIdentity();
-  const db = getAdminDb();
   const now = Date.now();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -100,7 +99,7 @@ export async function getCommandCenter() {
       entityId: String(item.entityId ?? ''),
       actorId: String(item.actorId ?? ''),
       createdAt: dateKey(item.createdAt),
-      title: humanTitle((item.payload ?? {}) as Record<string, unknown>, String(item.eventName ?? 'Atividade')), 
+      title: humanTitle((item.payload ?? {}) as Record<string, unknown>, String(item.eventName ?? 'Atividade')),
     }));
 
   const unread = inbox.filter((item) => item.read !== true);
