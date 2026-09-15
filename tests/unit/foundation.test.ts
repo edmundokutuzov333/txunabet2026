@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import test from 'node:test';
-import { ENTITY_TYPES, DomainEventInputSchema, RelationshipInputSchema } from '../../src/server/domain/entities';
+import { ENTITY_TYPES, DomainEventInputSchema, RelationshipInputSchema, collectionForEntity } from '../../src/server/domain/entities';
 import { RESOURCE_PERMISSION_MAP } from '../../src/server/authorization/resources';
 
 test('foundation exposes the complete universal entity catalog', () => {
@@ -52,4 +52,21 @@ test('every universal resource exposes the required action matrix', () => {
   for (const entity of ENTITY_TYPES) {
     for (const action of required) assert.ok(action in RESOURCE_PERMISSION_MAP[entity]);
   }
+});
+
+test('canonical Firestore collections are defined for every universal entity', () => {
+  for (const entity of ENTITY_TYPES) {
+    const collection = collectionForEntity(entity);
+    assert.equal(typeof collection, 'string');
+    assert.ok(collection.length > 0, `missing collection for ${entity}`);
+  }
+});
+
+test('core work entities keep the established production collection names', () => {
+  assert.equal(collectionForEntity('project'), 'projects');
+  assert.equal(collectionForEntity('task'), 'module_tasks');
+  assert.equal(collectionForEntity('goal'), 'goals');
+  assert.equal(collectionForEntity('workspace'), 'module_workspaces');
+  assert.equal(collectionForEntity('meeting'), 'module_meetings');
+  assert.equal(collectionForEntity('event'), 'module_calendar_events');
 });
