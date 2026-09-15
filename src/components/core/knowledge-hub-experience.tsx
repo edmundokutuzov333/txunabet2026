@@ -5,7 +5,7 @@ import { BookOpen, FileText, Network, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { OryonBadge, OryonButton, OryonCard, OryonDataGrid, OryonEntityHeader, OryonInput, OryonPanel } from '@/components/oryon-ui';
 
-type Row = Record<string, unknown> & { id: string };
+type Row = Record<string, unknown> & { id: string; type?: string; title?: string; snippet?: string; score?: number; metadata?: Record<string, unknown> };
 
 async function readJson(path: string): Promise<Record<string, unknown>> {
   const response = await fetch(path, { cache: 'no-store', credentials: 'include', headers: { Accept: 'application/json' } });
@@ -14,14 +14,31 @@ async function readJson(path: string): Promise<Record<string, unknown>> {
   return payload as Record<string, unknown>;
 }
 
-async function fetchModule(module: string, query = ''): Promise<Row[]> {
-  const payload = await readJson(`/api/modules/${module}${query ? `?q=${encodeURIComponent(query)}` : ''}`);
+async function fetchModule(module: string): Promise<Row[]> {
+  const payload = await readJson(`/api/modules/${module}`);
   return Array.isArray(payload.data) ? payload.data as Row[] : [];
 }
 
-async function fetchDocuments(query = ''): Promise<Row[]> {
-  const payload = await readJson(`/api/documents${query ? `?q=${encodeURIComponent(query)}` : ''}`);
+async function fetchDocuments(): Promise<Row[]> {
+  const payload = await readJson('/api/documents');
   return Array.isArray(payload.documents) ? payload.documents as Row[] : [];
+}
+
+async function fetchEnterpriseSearch(query: string): Promise<Row[]> {
+  const payload = await readJson(`/api/search?q=${encodeURIComponent(query)}&scope=all&semantic=true&limit=50`);
+  return Array.isArray(payload.data) ? payload.data as Row[] : [];
+}
+
+function resultHref(row: Row): string {
+  const type = String(row.type ?? '');
+  if (type === 'documents') return `/dashboard/document-editor?id=${encodeURIComponent(row.id)}`;
+  if (type === 'projects') return `/dashboard/projects?id=${encodeURIComponent(row.id)}`;
+  if (type === 'tasks') return `/dashboard/tasks?id=${encodeURIComponent(row.id)}`;
+  if (type === 'meetings') return `/dashboard/meetings?id=${encodeURIComponent(row.id)}`;
+  if (type === 'people') return `/dashboard/team?person=${encodeURIComponent(row.id)}`;
+  if (type === 'files') return '/dashboard/cloud';
+  if (type === 'knowledge') return '/dashboard/knowledge-base';
+  return '/dashboard';
 }
 
 export default function KnowledgeHubExperience() {
@@ -31,6 +48,7 @@ export default function KnowledgeHubExperience() {
   const [files, setFiles] = useState<Row[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,16 +57,19 @@ export default function KnowledgeHubExperience() {
         if (cancelled) return;
         setDocs(documents);
         setFiles(cloud);
-        setError(null);
       })
       .catch((cause) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : 'Falha ao carregar o conhecimento.');
+      })
+      .finally(() => {
+        if (!cancelled) setInitialLoading(false);
       });
     return () => { cancelled = true; };
   }, []);
 
   const search = async () => {
-    if (!q.trim()) {
+    const query = q.trim();
+    if (!query) {
       setResults([]);
       setError(null);
       return;
@@ -56,12 +77,7 @@ export default function KnowledgeHubExperience() {
     setLoading(true);
     setError(null);
     try {
-      const [kb, documents, cloud] = await Promise.all([
-        fetchModule('knowledge-base', q),
-        fetchDocuments(q),
-        fetchModule('cloud', q),
-      ]);
-      setResults([...kb, ...documents, ...cloud].slice(0, 50));
+      setResults(await fetchEnterpriseSearch(query));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Falha ao pesquisar o conhecimento.');
     } finally {
@@ -79,48 +95,55 @@ export default function KnowledgeHubExperience() {
             value={q}
             onChange={(event) => setQ(event.target.value)}
             onKeyDown={(event) => event.key === 'Enter' && void search()}
-            placeholder="Pesquisar em todo o conhecimento…"
-            aria-label="Pesquisar conhecimento"
+            placeholder="Pesquisar pessoas, tarefas, projectos, documentos…"
+            aria-label="Pesquisar em todo o conhecimento"
           />
           <OryonButton onClick={() => void search()} disabled={loading}>
             <Search className="h-3.5 w-3.5" />
-            {loading ? 'A pesquisar…' : 'Search'}
+            {loading ? 'A pesquisar…' : 'Pesquisar'}
           </OryonButton>
         </div>
+        <p className="mt-2 text-xs text-muted-foreground">Pesquisa lexical + semântica, limitada aos recursos a que a sua conta tem acesso.</p>
       </OryonPanel>
       {error && <OryonCard className="p-4 text-sm text-[hsl(var(--status-danger))]">{error}</OryonCard>}
       <div className="grid gap-4 lg:grid-cols-3">
         <OryonCard className="p-5">
           <BookOpen className="h-5 w-5 text-primary" />
           <h2 className="mt-3 text-h2">Search</h2>
-          <p className="mt-1 text-body-small text-muted-foreground">Pesquisa transversal sobre conteúdo operacional.</p>
+          <p className="mt-1 text-body-small text-muted-foreground">Pesquisa transversal sobre conteúdo operacional e contexto empresarial.</p>
           <OryonBadge className="mt-4">{results.length} resultados</OryonBadge>
         </OryonCard>
         <Link href="/dashboard/documents">
           <OryonCard className="h-full p-5 hover:bg-surface-2">
             <FileText className="h-5 w-5 text-primary" />
             <h2 className="mt-3 text-h2">Docs</h2>
-            <p className="mt-1 text-body-small text-muted-foreground">{docs.length} documentos disponíveis no backend.</p>
+            <p className="mt-1 text-body-small text-muted-foreground">{initialLoading ? 'A carregar…' : `${docs.length} documentos disponíveis.`}</p>
           </OryonCard>
         </Link>
         <Link href="/dashboard/cloud">
           <OryonCard className="h-full p-5 hover:bg-surface-2">
             <Network className="h-5 w-5 text-primary" />
             <h2 className="mt-3 text-h2">Files</h2>
-            <p className="mt-1 text-body-small text-muted-foreground">{files.length} recursos persistidos.</p>
+            <p className="mt-1 text-body-small text-muted-foreground">{initialLoading ? 'A carregar…' : `${files.length} recursos persistidos.`}</p>
           </OryonCard>
         </Link>
       </div>
       {results.length > 0 && (
         <OryonPanel className="p-4">
-          <p className="text-label">Resultados</p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-label">Resultados</p>
+              <p className="mt-1 text-xs text-muted-foreground">Ordenados por relevância e contexto.</p>
+            </div>
+            <OryonBadge tone="accent">Enterprise Search</OryonBadge>
+          </div>
           <div className="mt-3">
             <OryonDataGrid
-              headers={['Título', 'Tipo', 'Contexto']}
+              headers={['Título', 'Tipo', 'Relevância']}
               rows={results.map((row) => [
-                String(row.title ?? row.name ?? row.id),
-                String(row.type ?? row.mimeType ?? 'knowledge'),
-                String(row.category ?? row.department ?? 'Knowledge'),
+                <Link key={`${row.id}-title`} href={resultHref(row)} className="font-medium text-foreground hover:text-primary">{String(row.title ?? row.id)}</Link>,
+                String(row.type ?? 'knowledge'),
+                typeof row.score === 'number' ? `${Math.round(row.score * 100)}%` : '—',
               ])}
             />
           </div>
