@@ -39,10 +39,18 @@ Foram adicionados:
 
 Os error boundaries registam o erro no console e oferecem recuperação sem alterar dados.
 
+### Domain consistency
+
+`src/app/api/goals/route.ts` passou a usar `collectionForEntity('goal')` em vez de repetir o nome da colecção localmente.
+
+Criação e actualização de goals também publicam `goal.created` e `goal.updated` através do `event_outbox`, ligando a operação de produto ao pipeline de Domain Events, notifications e automations.
+
+Não foi feita migração destrutiva entre colecções. A divergência `module_*` versus colecções raiz continua a ser tratada como reconciliação gradual, com o código novo a depender dos contratos centrais sempre que já existem.
+
 ## Estado pendente
 
 O stack trace exacto do erro `MODULE_NOT_FOUND` do Vercel continua por verificar porque os logs do deployment não estão disponíveis através do acesso GitHub usado nesta execução.
 
 Também continua pendente a comparação efectiva das Environment Variables do Vercel com `.env.example`.
 
-A consolidação das colecções Firestore `module_*` versus colecções raiz será tratada numa unidade própria. Não foi feita migração destrutiva nesta fase.
+A consolidação completa das colecções Firestore `module_*` versus colecções raiz exige inventário de todos os serviços e testes de compatibilidade antes de qualquer migração de dados.
