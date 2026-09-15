@@ -7,7 +7,7 @@ import { PERMISSIONS, type Permission } from '@/server/authorization/permissions
 import { writeAuditEvent } from '@/server/repositories/audit';
 import { publishDomainEvent } from '@/server/services/foundation';
 import { MODULE_SAFE_KEY, sanitizeModulePayload } from '@/lib/quality/module-security';
-import type { EntityType } from '@/server/domain/entities';
+import { collectionForEntity, type EntityType } from '@/server/domain/entities';
 
 export type ModuleName =
   | 'cloud' | 'calendar' | 'meetings' | 'integrations' | 'knowledge-base' | 'campaigns'
@@ -16,18 +16,18 @@ export type ModuleName =
 type ModuleConfig = { collection: string; read: Permission; write: Permission; titleField?: string; entityType: EntityType };
 
 const CONFIG: Record<ModuleName, ModuleConfig> = {
-  cloud: { collection: 'module_cloud_files', read: PERMISSIONS.FILES_READ, write: PERMISSIONS.FILES_WRITE, titleField: 'name', entityType: 'file' },
-  calendar: { collection: 'module_calendar_events', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title', entityType: 'event' },
-  meetings: { collection: 'module_meetings', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title', entityType: 'meeting' },
-  integrations: { collection: 'module_integrations', read: PERMISSIONS.AUTOMATION_READ, write: PERMISSIONS.AUTOMATION_MANAGE, titleField: 'name', entityType: 'integration' },
-  'knowledge-base': { collection: 'module_knowledge_articles', read: PERMISSIONS.KNOWLEDGE_READ, write: PERMISSIONS.KNOWLEDGE_MANAGE, titleField: 'title', entityType: 'knowledge_article' },
-  campaigns: { collection: 'module_campaigns', read: PERMISSIONS.MARKETING_READ, write: PERMISSIONS.MARKETING_MANAGE, titleField: 'name', entityType: 'campaign' },
-  tasks: { collection: 'module_tasks', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title', entityType: 'task' },
-  reports: { collection: 'module_reports', read: PERMISSIONS.REPORTING_READ, write: PERMISSIONS.REPORTING_MANAGE, titleField: 'name', entityType: 'report' },
-  workflows: { collection: 'module_workflows', read: PERMISSIONS.AUTOMATION_READ, write: PERMISSIONS.AUTOMATION_MANAGE, titleField: 'name', entityType: 'workflow' },
-  automations: { collection: 'module_automations', read: PERMISSIONS.AUTOMATION_READ, write: PERMISSIONS.AUTOMATION_MANAGE, titleField: 'name', entityType: 'automation' },
+  cloud: { collection: collectionForEntity('file'), read: PERMISSIONS.FILES_READ, write: PERMISSIONS.FILES_WRITE, titleField: 'name', entityType: 'file' },
+  calendar: { collection: collectionForEntity('event'), read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title', entityType: 'event' },
+  meetings: { collection: collectionForEntity('meeting'), read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title', entityType: 'meeting' },
+  integrations: { collection: collectionForEntity('integration'), read: PERMISSIONS.AUTOMATION_READ, write: PERMISSIONS.AUTOMATION_MANAGE, titleField: 'name', entityType: 'integration' },
+  'knowledge-base': { collection: collectionForEntity('knowledge_article'), read: PERMISSIONS.KNOWLEDGE_READ, write: PERMISSIONS.KNOWLEDGE_MANAGE, titleField: 'title', entityType: 'knowledge_article' },
+  campaigns: { collection: collectionForEntity('campaign'), read: PERMISSIONS.MARKETING_READ, write: PERMISSIONS.MARKETING_MANAGE, titleField: 'name', entityType: 'campaign' },
+  tasks: { collection: collectionForEntity('task'), read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title', entityType: 'task' },
+  reports: { collection: collectionForEntity('report'), read: PERMISSIONS.REPORTING_READ, write: PERMISSIONS.REPORTING_MANAGE, titleField: 'name', entityType: 'report' },
+  workflows: { collection: collectionForEntity('workflow'), read: PERMISSIONS.AUTOMATION_READ, write: PERMISSIONS.AUTOMATION_MANAGE, titleField: 'name', entityType: 'workflow' },
+  automations: { collection: collectionForEntity('automation'), read: PERMISSIONS.AUTOMATION_READ, write: PERMISSIONS.AUTOMATION_MANAGE, titleField: 'name', entityType: 'automation' },
   pulse: { collection: 'module_pulse_items', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'title', entityType: 'activity' },
-  workspaces: { collection: 'module_workspaces', read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'name', entityType: 'workspace' },
+  workspaces: { collection: collectionForEntity('workspace'), read: PERMISSIONS.OPERATIONS_READ, write: PERMISSIONS.OPERATIONS_MANAGE, titleField: 'name', entityType: 'workspace' },
 };
 
 const MAX_RECORDS = 200;
