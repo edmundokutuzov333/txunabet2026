@@ -38,20 +38,6 @@ function relationshipId(sourceType: string, sourceId: string, relationshipType: 
 }
 
 function directEntityRef(db: Firestore, entityType: EntityType, entityId: string): DocumentReference | null {
-  if (entityType === 'company') return db.collection('companies').doc(entityId);
-  if (entityType === 'department') return db.collection('departments').doc(entityId);
-  if (entityType === 'team') return db.collection('teams').doc(entityId);
-  if (entityType === 'user') return db.collection('users').doc(entityId);
-  if (entityType === 'project') return db.collection('projects').doc(entityId);
-  if (entityType === 'goal') return db.collection('goals').doc(entityId);
-  if (entityType === 'key_result') return db.collection('key_results').doc(entityId);
-  if (entityType === 'decision') return db.collection('decisions').doc(entityId);
-  if (entityType === 'form') return db.collection('forms').doc(entityId);
-  if (entityType === 'form_submission') return db.collection('form_submissions').doc(entityId);
-  if (entityType === 'approval') return db.collection('approvals').doc(entityId);
-  if (entityType === 'incident') return db.collection('incidents').doc(entityId);
-  if (entityType === 'risk') return db.collection('risks').doc(entityId);
-  if (entityType === 'activity') return db.collection('activities').doc(entityId);
   if (entityType === 'notification' || entityType === 'workflow_version') return null;
   return db.collection(collectionForEntity(entityType)).doc(entityId);
 }
