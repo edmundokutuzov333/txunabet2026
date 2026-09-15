@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isAuthorizationError } from '@/server/authorization';
 import { enterpriseSearch, getKnowledgeGraph, type ContextType, type SearchScope } from '@/server/services/enterprise-context';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
