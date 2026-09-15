@@ -47,6 +47,8 @@ Criação e actualização de goals também publicam `goal.created` e `goal.upda
 
 `src/server/services/foundation.ts` deixou de manter uma segunda tabela de mapeamento para referências directas. Agora usa exclusivamente `collectionForEntity()` para resolver a colecção de uma entidade, reduzindo a possibilidade de divergência entre o domínio e os serviços.
 
+`src/server/services/legacy-modules.ts` passou a resolver as colecções de todos os módulos através do mesmo registry canónico. O endpoint existente `/api/modules/tasks` mantém o contrato HTTP, mas a persistência de Tasks, Calendar, Meetings, Files, Knowledge, Campaigns, Workflows, Automations, Reports, Integrations e Workspaces já não depende de nomes duplicados no serviço.
+
 Foi criado `docs/ORYON-2.0-FIRESTORE-MAP.md` com o mapa canónico das colecções e as regras para não criar novas variantes.
 
 `tests/unit/foundation.test.ts` ganhou uma guarda explícita para garantir que todas as entidades universais têm colecção canónica e que as colecções centrais de Project, Task, Goal, Workspace, Meeting e Event não mudam sem alteração intencional do contrato.
@@ -55,7 +57,9 @@ Não foi feita migração destrutiva entre colecções. A divergência `module_*
 
 ## Estado pendente
 
-O stack trace exacto do erro `MODULE_NOT_FOUND` do Vercel continua por verificar porque os logs do deployment não estão disponíveis através do acesso GitHub usado nesta execução.
+O stack trace exacto do erro `MODULE_NOT_FOUND` do Vercel continua por verificar porque os logs detalhados do deployment não estão disponíveis através do acesso GitHub usado nesta execução.
+
+O estado do último deployment Vercel deve continuar a ser tratado como não validado até o check terminar ou os logs de build ficarem disponíveis.
 
 Também continua pendente a comparação efectiva das Environment Variables do Vercel com `.env.example`.
 
