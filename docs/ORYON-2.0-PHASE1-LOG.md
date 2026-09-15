@@ -49,6 +49,8 @@ Criação e actualização de goals também publicam `goal.created` e `goal.upda
 
 Foi criado `docs/ORYON-2.0-FIRESTORE-MAP.md` com o mapa canónico das colecções e as regras para não criar novas variantes.
 
+`tests/unit/foundation.test.ts` ganhou uma guarda explícita para garantir que todas as entidades universais têm colecção canónica e que as colecções centrais de Project, Task, Goal, Workspace, Meeting e Event não mudam sem alteração intencional do contrato.
+
 Não foi feita migração destrutiva entre colecções. A divergência `module_*` versus colecções raiz continua a ser tratada como reconciliação gradual, com o código novo a depender dos contratos centrais sempre que já existem.
 
 ## Estado pendente
