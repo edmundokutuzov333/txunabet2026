@@ -45,6 +45,10 @@ Os error boundaries registam o erro no console e oferecem recuperação sem alte
 
 Criação e actualização de goals também publicam `goal.created` e `goal.updated` através do `event_outbox`, ligando a operação de produto ao pipeline de Domain Events, notifications e automations.
 
+`src/server/services/foundation.ts` deixou de manter uma segunda tabela de mapeamento para referências directas. Agora usa exclusivamente `collectionForEntity()` para resolver a colecção de uma entidade, reduzindo a possibilidade de divergência entre o domínio e os serviços.
+
+Foi criado `docs/ORYON-2.0-FIRESTORE-MAP.md` com o mapa canónico das colecções e as regras para não criar novas variantes.
+
 Não foi feita migração destrutiva entre colecções. A divergência `module_*` versus colecções raiz continua a ser tratada como reconciliação gradual, com o código novo a depender dos contratos centrais sempre que já existem.
 
 ## Estado pendente
@@ -53,4 +57,4 @@ O stack trace exacto do erro `MODULE_NOT_FOUND` do Vercel continua por verificar
 
 Também continua pendente a comparação efectiva das Environment Variables do Vercel com `.env.example`.
 
-A consolidação completa das colecções Firestore `module_*` versus colecções raiz exige inventário de todos os serviços e testes de compatibilidade antes de qualquer migração de dados.
+A consolidação física das colecções Firestore exige inventário de todos os serviços, medição de sobreposição por empresa, dry-run e testes de compatibilidade antes de qualquer apagamento ou renomeação.
