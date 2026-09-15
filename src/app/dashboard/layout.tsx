@@ -11,8 +11,13 @@ import { ensureDemoDataExtra } from '@/server/services/demo-seed-extra';
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   try {
     const identity = await requireIdentity();
-    await ensureDemoData(identity);
-    await ensureDemoDataExtra(identity);
+
+    // Demo fixtures are never allowed in production. They may only be enabled
+    // during non-production development with an explicit environment flag.
+    if (process.env.NODE_ENV !== 'production' && process.env.ORYON_ENABLE_DEMO_SEED === 'true') {
+      await ensureDemoData(identity);
+      await ensureDemoDataExtra(identity);
+    }
   } catch {
     redirect('/login');
   }
